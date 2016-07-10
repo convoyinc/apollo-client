@@ -13,6 +13,7 @@ Expect active development and potentially significant breaking changes in the `0
 - Fix repeat calls to a query that includes fragments [PR #447](https://github.com/apollostack/apollo-client/pull/447).
 - GraphQL errors on mutation results now result in a rejected promise and are no longer a part of returned results. [PR #465](https://github.com/apollostack/apollo-client/pull/465) and [Issue #458](https://github.com/apollostack/apollo-client/issues/458).
 - Don't add fields to root mutations and root queries [PR #463](https://github.com/apollostack/apollo-client/pull/463) and [Issue #413](https://github.com/apollostack/apollo-client/issues/413).
+- Added a `storeFetchMiddleware` option to `ApolloClient` that allows transformation of values returned from the store. Also exposes a `cachedFetchById` middleware to handle the common case of fetching cached resources by id. [PR #376](https://github.com/apollostack/apollo-client/pull/376)
 
 ### v0.4.7
 
