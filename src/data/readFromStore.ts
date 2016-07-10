@@ -3,6 +3,10 @@ import {
 } from './diffAgainstStore';
 
 import {
+  StoreFetchMiddleware,
+} from './fetchMiddleware';
+
+import {
   SelectionSet,
   Document,
 } from 'graphql';
@@ -26,11 +30,13 @@ export function readQueryFromStore({
   query,
   variables,
   returnPartialData,
+  fetchMiddleware,
 }: {
   store: NormalizedCache,
   query: Document,
   variables?: Object,
   returnPartialData?: boolean,
+  fetchMiddleware?: StoreFetchMiddleware,
 }): Object {
   const queryDef = getQueryDefinition(query);
 
@@ -40,6 +46,7 @@ export function readQueryFromStore({
     selectionSet: queryDef.selectionSet,
     variables,
     returnPartialData,
+    fetchMiddleware,
   });
 }
 
@@ -49,12 +56,14 @@ export function readFragmentFromStore({
   rootId,
   variables,
   returnPartialData,
+  fetchMiddleware,
 }: {
   store: NormalizedCache,
   fragment: Document,
   rootId: string,
   variables?: Object,
   returnPartialData?: boolean,
+  fetchMiddleware?: StoreFetchMiddleware,
 }): Object {
   const fragmentDef = getFragmentDefinition(fragment);
 
@@ -64,6 +73,7 @@ export function readFragmentFromStore({
     selectionSet: fragmentDef.selectionSet,
     variables,
     returnPartialData,
+    fetchMiddleware,
   });
 }
 
@@ -74,6 +84,7 @@ export function readSelectionSetFromStore({
   variables,
   returnPartialData = false,
   fragmentMap,
+  fetchMiddleware,
 }: {
   store: NormalizedCache,
   rootId: string,
@@ -81,6 +92,7 @@ export function readSelectionSetFromStore({
   variables: Object,
   returnPartialData?: boolean,
   fragmentMap?: FragmentMap,
+  fetchMiddleware?: StoreFetchMiddleware,
 }): Object {
   const {
     result,
@@ -91,6 +103,7 @@ export function readSelectionSetFromStore({
     throwOnMissingField: !returnPartialData,
     variables,
     fragmentMap,
+    fetchMiddleware,
   });
 
   return result;

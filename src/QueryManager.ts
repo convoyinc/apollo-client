@@ -50,6 +50,10 @@ import {
 } from './data/diffAgainstStore';
 
 import {
+  StoreFetchMiddleware,
+} from './data/fetchMiddleware';
+
+import {
   MutationBehavior,
 } from './data/mutationResults';
 
@@ -114,6 +118,7 @@ export class QueryManager {
   private reduxRootKey: string;
   private pollingTimers: {[queryId: string]: NodeJS.Timer | any}; //oddity in Typescript
   private queryTransformer: QueryTransformer;
+  private storeFetchMiddleware: StoreFetchMiddleware;
   private queryListeners: { [queryId: string]: QueryListener };
 
   private idCounter = 0;
@@ -145,12 +150,14 @@ export class QueryManager {
     store,
     reduxRootKey,
     queryTransformer,
+    storeFetchMiddleware,
     shouldBatch = false,
   }: {
     networkInterface: NetworkInterface,
     store: ApolloStore,
     reduxRootKey: string,
     queryTransformer?: QueryTransformer,
+    storeFetchMiddleware?: StoreFetchMiddleware,
     shouldBatch?: Boolean,
   }) {
     // XXX this might be the place to do introspection for inserting the `id` into the query? or
@@ -159,6 +166,7 @@ export class QueryManager {
     this.store = store;
     this.reduxRootKey = reduxRootKey;
     this.queryTransformer = queryTransformer;
+    this.storeFetchMiddleware = storeFetchMiddleware;
     this.pollingTimers = {};
 
     this.queryListeners = {};
@@ -287,6 +295,7 @@ export class QueryManager {
             variables: queryStoreValue.variables,
             returnPartialData: options.returnPartialData,
             fragmentMap: queryStoreValue.fragmentMap,
+            fetchMiddleware: this.storeFetchMiddleware,
           });
 
           if (observer.next) {
@@ -379,6 +388,7 @@ export class QueryManager {
               variables: queryStoreValue.variables,
               returnPartialData: options.returnPartialData,
               fragmentMap: queryStoreValue.fragmentMap,
+              fetchMiddleware: this.storeFetchMiddleware,
             });
 
             if (observer.next) {
@@ -564,6 +574,7 @@ export class QueryManager {
         rootId: querySS.id,
         variables,
         fragmentMap: queryFragmentMap,
+        fetchMiddleware: this.storeFetchMiddleware,
       });
 
       initialResult = result;
@@ -664,6 +675,7 @@ export class QueryManager {
                 variables,
                 returnPartialData: returnPartialData,
                 fragmentMap: queryFragmentMap,
+                fetchMiddleware: this.storeFetchMiddleware,
               });
               // ensure multiple errors don't get thrown
               /* tslint:disable */

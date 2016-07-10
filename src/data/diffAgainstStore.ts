@@ -1,6 +1,7 @@
 import isArray = require('lodash.isarray');
 import isNull = require('lodash.isnull');
 import isString = require('lodash.isstring');
+import isUndefined = require('lodash.isundefined');
 import has = require('lodash.has');
 import assign = require('lodash.assign');
 
@@ -14,6 +15,10 @@ import {
 import {
   NormalizedCache,
 } from './store';
+
+import {
+  StoreFetchMiddleware,
+} from './fetchMiddleware';
 
 import {
   SelectionSetWithRoot,
@@ -46,10 +51,12 @@ export function diffQueryAgainstStore({
   store,
   query,
   variables,
+  fetchMiddleware,
 }: {
   store: NormalizedCache,
   query: Document,
   variables?: Object,
+  fetchMiddleware?: StoreFetchMiddleware,
 }): DiffResult {
   const queryDef = getQueryDefinition(query);
 
@@ -59,6 +66,7 @@ export function diffQueryAgainstStore({
     selectionSet: queryDef.selectionSet,
     throwOnMissingField: false,
     variables,
+    fetchMiddleware,
   });
 }
 
@@ -67,11 +75,13 @@ export function diffFragmentAgainstStore({
   fragment,
   rootId,
   variables,
+  fetchMiddleware,
 }: {
   store: NormalizedCache,
   fragment: Document,
   rootId: string,
   variables?: Object,
+  fetchMiddleware?: StoreFetchMiddleware,
 }): DiffResult {
   const fragmentDef = getFragmentDefinition(fragment);
 
@@ -81,6 +91,7 @@ export function diffFragmentAgainstStore({
     selectionSet: fragmentDef.selectionSet,
     throwOnMissingField: false,
     variables,
+    fetchMiddleware,
   });
 }
 
@@ -102,6 +113,7 @@ export function diffSelectionSetAgainstStore({
   throwOnMissingField = false,
   variables,
   fragmentMap,
+  fetchMiddleware,
 }: {
   selectionSet: SelectionSet,
   store: NormalizedCache,
@@ -109,6 +121,7 @@ export function diffSelectionSetAgainstStore({
   throwOnMissingField: boolean,
   variables: Object,
   fragmentMap?: FragmentMap,
+  fetchMiddleware?: StoreFetchMiddleware,
 }): DiffResult {
   if (selectionSet.kind !== 'SelectionSet') {
     throw new Error('Must be a selection set.');
@@ -144,6 +157,7 @@ export function diffSelectionSetAgainstStore({
           rootId,
           store,
           fragmentMap,
+          fetchMiddleware,
           included: includeField,
         });
 
@@ -168,6 +182,7 @@ export function diffSelectionSetAgainstStore({
         rootId,
         store,
         fragmentMap,
+        fetchMiddleware,
       });
 
       if (fieldIsMissing) {
@@ -191,6 +206,7 @@ export function diffSelectionSetAgainstStore({
         rootId,
         store,
         fragmentMap,
+        fetchMiddleware,
       });
 
       if (fieldIsMissing) {
@@ -241,6 +257,7 @@ function diffFieldAgainstStore({
   rootId,
   store,
   fragmentMap,
+  fetchMiddleware,
   included = true,
 }: {
   field: Field,
@@ -249,12 +266,23 @@ function diffFieldAgainstStore({
   rootId: string,
   store: NormalizedCache,
   fragmentMap?: FragmentMap,
+  fetchMiddleware?: StoreFetchMiddleware,
   included?: Boolean,
 }): FieldDiffResult {
   const storeObj = store[rootId] || {};
   const storeFieldKey = storeKeyNameFromField(field, variables);
 
-  if (! has(storeObj, storeFieldKey)) {
+  let storeValue;
+  // Give the transformer a chance to yield a rewritten result.
+  if (fetchMiddleware) {
+    storeValue = fetchMiddleware(field, variables, store, () => storeObj[storeFieldKey]);
+  } else {
+    storeValue = storeObj[storeFieldKey];
+  }
+
+  // This may seem crazy, but we care about the difference between the cases
+  // where a value is undefined vs when it is not present in the store.
+  if (isUndefined(storeValue) && !has(storeObj, storeFieldKey)) {
     if (throwOnMissingField && included) {
       throw new Error(`Can't find field ${storeFieldKey} on object ${storeObj}.`);
     }
@@ -263,8 +291,6 @@ function diffFieldAgainstStore({
       isMissing: 'true',
     };
   }
-
-  const storeValue = storeObj[storeFieldKey];
 
   // Handle all scalar types here
   if (! field.selectionSet) {
@@ -298,6 +324,7 @@ function diffFieldAgainstStore({
         selectionSet: field.selectionSet,
         variables,
         fragmentMap,
+        fetchMiddleware,
       });
 
       if (itemDiffResult.isMissing) {
@@ -322,6 +349,7 @@ function diffFieldAgainstStore({
       selectionSet: field.selectionSet,
       variables,
       fragmentMap,
+      fetchMiddleware,
     });
   }
 

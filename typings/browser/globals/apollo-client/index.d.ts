@@ -85,6 +85,11 @@ declare module 'lodash.identity' {
   export = main.identity;
 }
 
+declare module 'lodash.every' {
+  import main = require('~lodash/index');
+  export = main.every;
+}
+
 /*
 
   GRAPHQL

@@ -5,6 +5,7 @@ Expect active development and potentially significant breaking changes in the `0
 ### vNEXT
 
 - Don't throw on unknown directives, instead just pass them through. This can open the door to implementing `@live`, `@defer`, and `@stream`, if coupled with some changes in the network layer. [PR #372](https://github.com/apollostack/apollo-client/pull/372)
+- Added a `storeFetchMiddleware` option to `ApolloClient` that allows transformation of values returned from the store. Also exposes a `cachedFetchById` middleware to handle the common case of fetching cached resources by id.
 
 ### v0.3.29
 
