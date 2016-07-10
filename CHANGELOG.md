@@ -36,6 +36,9 @@ Expect active development and potentially significant breaking changes in the `0
 - Added deep result comparison so that observers are only fired when the data associated with a particular query changes. This change eliminates unnecessary re-renders and improves UI performance. [PR #402](https://github.com/apollostack/apollo-client/pull/402) and [Issue #400](https://github.com/apollostack/apollo-client/issues/400).
 - Added a "noFetch" option to WatchQueryOptions that only returns available data from the local store (even it is incomplete). The `ObservableQuery` returned from calling `watchQuery` now has `options`, `queryManager`, and `queryId`. The `queryId` can be used to read directly from the state of `apollo.queries`. [Issue #225](https://github.com/apollostack/apollo-client/issues/225), [Issue #342](https://github.com/apollostack/apollo-client/issues/342), and [PR #385](https://github.com/apollostack/apollo-client/pull/385).
 
+- Added a `storeFetchMiddleware` option to `ApolloClient` that allows transformation of values returned from the store. Also exposes a `cachedFetchById` middleware to handle the common case of fetching cached resources by id. [PR #376](https://github.com/apollostack/apollo-client/pull/376)
+
+
 ### v0.4.1
 
 - Allow `client.mutate` to accept an `optimisticResponse` argument to update the cache immediately, then after the server responds replace the `optimisticResponse` with the real response. [Issue #287](https://github.com/apollostack/apollo-client/issues/287) [PR #336](https://github.com/apollostack/apollo-client/pull/336)
