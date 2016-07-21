@@ -30,6 +30,8 @@ import {
 
 import {
   QueryManager,
+  ResultComparator,
+  ResultTransformer,
 } from './QueryManager';
 
 import {
@@ -165,6 +167,8 @@ export default class ApolloClient {
   public queryManager: QueryManager;
   public reducerConfig: ApolloReducerConfig;
   public queryTransformer: QueryTransformer;
+  public resultTransformer: ResultTransformer;
+  public resultComparator: ResultComparator;
   public shouldBatch: boolean;
   public shouldForceFetch: boolean;
   public dataId: IdGetter;
@@ -177,6 +181,8 @@ export default class ApolloClient {
     initialState,
     dataIdFromObject,
     queryTransformer,
+    resultTransformer,
+    resultComparator,
     shouldBatch = false,
     ssrMode = false,
     ssrForceFetchDelay = 0,
@@ -188,6 +194,8 @@ export default class ApolloClient {
     initialState?: any,
     dataIdFromObject?: IdGetter,
     queryTransformer?: QueryTransformer,
+    resultTransformer?: ResultTransformer,
+    resultComparator?: ResultComparator,
     shouldBatch?: boolean,
     ssrMode?: boolean,
     ssrForceFetchDelay?: number
@@ -199,6 +207,8 @@ export default class ApolloClient {
     this.networkInterface = networkInterface ? networkInterface :
       createNetworkInterface('/graphql');
     this.queryTransformer = queryTransformer;
+    this.resultTransformer = resultTransformer;
+    this.resultComparator = resultComparator;
     this.shouldBatch = shouldBatch;
     this.shouldForceFetch = !(ssrMode || ssrForceFetchDelay > 0);
     this.dataId = dataIdFromObject;
@@ -304,6 +314,8 @@ export default class ApolloClient {
       reduxRootKey: this.reduxRootKey,
       store,
       queryTransformer: this.queryTransformer,
+      resultTransformer: this.resultTransformer,
+      resultComparator: this.resultComparator,
       shouldBatch: this.shouldBatch,
       batchInterval: this.batchInterval,
     });
