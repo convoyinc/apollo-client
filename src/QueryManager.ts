@@ -39,6 +39,12 @@ import {
   GraphQLResult,
   Document,
   FragmentDefinition,
+  // We need to import this here to allow TypeScript to include it in the definition file even
+  // though we don't use it. https://github.com/Microsoft/TypeScript/issues/5711
+  // We need to disable the linter here because TSLint rightfully complains that this is unused.
+  /* tslint:disable */
+  SelectionSet,
+  /* tslint:enable */
 } from 'graphql';
 
 import { print } from 'graphql-tag/printer';
@@ -74,6 +80,7 @@ import {
 } from './index';
 
 import { Observer, Subscription } from './util/Observable';
+import { tryFunctionOrLogError } from './util/errorHandling';
 
 import {
   ApolloError,
@@ -104,9 +111,9 @@ export type ResultComparator = (result1: ApolloQueryResult, result2: ApolloQuery
 export class QueryManager {
   public pollingTimers: {[queryId: string]: NodeJS.Timer | any}; //oddity in Typescript
   public scheduler: QueryScheduler;
+  public store: ApolloStore;
 
   private networkInterface: NetworkInterface;
-  private store: ApolloStore;
   private reduxRootKey: string;
   private queryTransformer: QueryTransformer;
   private resultTransformer: ResultTransformer;
@@ -137,6 +144,11 @@ export class QueryManager {
     observableQuery: ObservableQuery;
     subscriptions: Subscription[];
   } };
+
+  // A map going from the name of a query to an observer issued for it by watchQuery. This is
+  // generally used to refetches for refetchQueries and to update mutation results through
+  // updateQueries.
+  private queryIdsByName: { [queryName: string]: string[] };
 
   constructor({
     networkInterface,
@@ -182,6 +194,7 @@ export class QueryManager {
     this.batcher.start(this.batchInterval);
     this.fetchQueryPromises = {};
     this.observableQueries = {};
+    this.queryIdsByName = {};
 
     // this.store is usually the fake store we get from the Redux middleware API
     // XXX for tests, we sometimes pass in a real Redux store into the QueryManager
@@ -211,6 +224,7 @@ export class QueryManager {
     fragments = [],
     optimisticResponse,
     updateQueries,
+    refetchQueries = [],
   }: {
     mutation: Document,
     variables?: Object,
@@ -218,6 +232,7 @@ export class QueryManager {
     fragments?: FragmentDefinition[],
     optimisticResponse?: Object,
     updateQueries?: MutationQueryReducersMap,
+    refetchQueries?: string[],
   }): Promise<ApolloQueryResult> {
     const mutationId = this.generateQueryId();
 
@@ -280,6 +295,7 @@ export class QueryManager {
             ],
           });
 
+          refetchQueries.forEach((name) => { this.refetchQueryByName(name); });
           resolve(this.transformResult(<ApolloQueryResult>result));
         })
         .catch((err) => {
@@ -337,6 +353,7 @@ export class QueryManager {
                 returnPartialData: options.returnPartialData || options.noFetch,
                 fragmentMap: queryStoreValue.fragmentMap,
               }),
+              loading: queryStoreValue.loading,
             };
 
             if (observer.next) {
@@ -449,9 +466,19 @@ export class QueryManager {
     delete this.fetchQueryPromises[requestId.toString()];
   }
 
-  // Adds an ObservableQuery to this.observableQueries
+  // Adds an ObservableQuery to this.observableQueries and to this.observableQueriesByName.
   public addObservableQuery(queryId: string, observableQuery: ObservableQuery) {
     this.observableQueries[queryId] = { observableQuery, subscriptions: [] };
+
+    // Insert the ObservableQuery into this.observableQueriesByName if the query has a name
+    const queryDef = getQueryDefinition(observableQuery.options.query);
+    if (queryDef.name && queryDef.name.value) {
+      const queryName = getQueryDefinition(observableQuery.options.query).name.value;
+
+      // XXX we may we want to warn the user about query name conflicts in the future
+      this.queryIdsByName[queryName] = this.queryIdsByName[queryName] || [];
+      this.queryIdsByName[queryName].push(observableQuery.queryId);
+    }
   }
 
   // Associates a query subscription with an ObservableQuery in this.observableQueries
@@ -467,7 +494,12 @@ export class QueryManager {
   }
 
   public removeObservableQuery(queryId: string) {
+    const observableQuery = this.observableQueries[queryId].observableQuery;
+    const queryName = getQueryDefinition(observableQuery.options.query).name.value;
     delete this.observableQueries[queryId];
+    this.queryIdsByName[queryName] = this.queryIdsByName[queryName].filter((val) => {
+      return !(observableQuery.queryId === val);
+    });
   }
 
   public resetStore(): void {
@@ -519,6 +551,53 @@ export class QueryManager {
     this.stopQueryInStore(queryId);
   }
 
+  public getQueryWithPreviousResult(queryId: string, isOptimistic = false) {
+    if (!this.observableQueries[queryId]) {
+      throw new Error(`ObservableQuery with this id doesn't exist: ${queryId}`);
+    }
+
+    const observableQuery = this.observableQueries[queryId].observableQuery;
+
+    const queryOptions = observableQuery.options;
+
+    let fragments = queryOptions.fragments;
+    let queryDefinition = getQueryDefinition(queryOptions.query);
+
+    if (this.queryTransformer) {
+      const doc = {
+        kind: 'Document',
+        definitions: [
+          queryDefinition,
+            ...(fragments || []),
+        ],
+      };
+
+      const transformedDoc = applyTransformers(doc, [this.queryTransformer]);
+
+      queryDefinition = getQueryDefinition(transformedDoc);
+      fragments = getFragmentDefinitions(transformedDoc);
+    }
+
+    const previousResult = readSelectionSetFromStore({
+      // In case of an optimistic change, apply reducer on top of the
+      // results including previous optimistic updates. Otherwise, apply it
+      // on top of the real data only.
+      store: isOptimistic ? this.getDataWithOptimisticResults() : this.getApolloState().data,
+      rootId: 'ROOT_QUERY',
+      selectionSet: queryDefinition.selectionSet,
+      variables: queryOptions.variables,
+      returnPartialData: queryOptions.returnPartialData || queryOptions.noFetch,
+      fragmentMap: createFragmentMap(fragments || []),
+    });
+
+    return {
+      previousResult,
+      queryVariables: queryOptions.variables,
+      querySelectionSet: queryDefinition.selectionSet,
+      queryFragments: fragments,
+    };
+  }
+
   private collectResultBehaviorsFromUpdateQueries(
     updateQueries: MutationQueryReducersMap,
     mutationResult: Object,
@@ -529,68 +608,38 @@ export class QueryManager {
     }
     const resultBehaviors = [];
 
-    const observableQueriesByName: { [name: string]: ObservableQuery[] } = {};
-    Object.keys(this.observableQueries).forEach((key) => {
-      const observableQuery = this.observableQueries[key].observableQuery;
-      const queryName = getQueryDefinition(observableQuery.options.query).name.value;
-
-      observableQueriesByName[queryName] =
-        observableQueriesByName[queryName] || [];
-      observableQueriesByName[queryName].push(observableQuery);
-    });
-
     Object.keys(updateQueries).forEach((queryName) => {
       const reducer = updateQueries[queryName];
-      const queries = observableQueriesByName[queryName];
-      if (!queries) {
+      const queryIds = this.queryIdsByName[queryName];
+      if (!queryIds) {
         // XXX should throw an error?
         return;
       }
 
-      queries.forEach((observableQuery) => {
-        const queryOptions = observableQuery.options;
+      queryIds.forEach((queryId) => {
+        const {
+          previousResult,
+          queryVariables,
+          querySelectionSet,
+          queryFragments,
+        } = this.getQueryWithPreviousResult(queryId, isOptimistic);
 
-        let fragments = queryOptions.fragments;
-        let queryDefinition = getQueryDefinition(queryOptions.query);
-
-        if (this.queryTransformer) {
-          const doc = {
-            kind: 'Document',
-            definitions: [
-              queryDefinition,
-              ...(fragments || []),
-            ],
-          };
-
-          const transformedDoc = applyTransformers(doc, [this.queryTransformer]);
-
-          queryDefinition = getQueryDefinition(transformedDoc);
-          fragments = getFragmentDefinitions(transformedDoc);
-        }
-
-        const previousResult = readSelectionSetFromStore({
-          // In case of an optimistic change, apply reducer on top of the
-          // results including previous optimistic updates. Otherwise, apply it
-          // on top of the real data only.
-          store: isOptimistic ? this.getDataWithOptimisticResults() : this.getApolloState().data,
-          rootId: 'ROOT_QUERY',
-          selectionSet: queryDefinition.selectionSet,
-          variables: queryOptions.variables,
-          returnPartialData: queryOptions.returnPartialData || queryOptions.noFetch,
-          fragmentMap: createFragmentMap(fragments || []),
-        });
-
-        resultBehaviors.push({
-          type: 'QUERY_RESULT',
-          newResult: reducer(previousResult, {
+        const newResult = tryFunctionOrLogError(() => reducer(
+          previousResult, {
             mutationResult,
             queryName,
-            queryVariables: queryOptions.variables,
-          }),
-          queryVariables: queryOptions.variables,
-          querySelectionSet: queryDefinition.selectionSet,
-          queryFragments: fragments,
-        });
+            queryVariables,
+          }));
+
+        if (newResult) {
+          resultBehaviors.push({
+            type: 'QUERY_RESULT',
+            newResult,
+            queryVariables,
+            querySelectionSet,
+            queryFragments,
+          });
+        }
       });
     });
 
@@ -756,7 +805,7 @@ export class QueryManager {
 
             // return a chainable promise
             this.removeFetchQueryPromise(requestId);
-            resolve({ data: resultFromStore });
+            resolve({ data: resultFromStore, loading: false });
           }).catch((error: Error) => {
             this.store.dispatch({
               type: 'APOLLO_QUERY_ERROR',
@@ -775,6 +824,14 @@ export class QueryManager {
     // return a chainable promise
     return new Promise((resolve) => {
       resolve({ data: initialResult });
+    });
+  }
+
+  // Refetches a query given that query's name. Refetches
+  // all ObservableQuery instances associated with the query name.
+  private refetchQueryByName(queryName: string) {
+    this.queryIdsByName[queryName].forEach((queryId) => {
+      this.observableQueries[queryId].observableQuery.refetch();
     });
   }
 
