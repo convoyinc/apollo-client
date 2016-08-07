@@ -4,6 +4,8 @@ Expect active development and potentially significant breaking changes in the `0
 
 ### vNEXT
 
+- Added `resultTransformer` and `resultComparator` to `ApolloClient`/`QueryManager`, which afford the ability to transform result objects immediately before they are returned to the application. [PR #446](https://github.com/apollostack/apollo-client/pull/446)
+
 ### v0.4.11
 
 - Added an `refetchQueries` option to `mutate`. The point is to just refetch certain queries on a mutation rather than having to manually specify how the result should be incorporated for each of them with `updateQueries`. [PR #482](https://github.com/apollostack/apollo-client/pull/482) and [Issue #448](https://github.com/apollostack/apollo-client/issues/448).
