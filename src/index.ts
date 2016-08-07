@@ -100,9 +100,10 @@ export {
 
 export type ApolloQueryResult = {
   data: any;
-  // Right now only has one property, but will later include loading state, and possibly other info
-  // This is different from the GraphQLResult type because it doesn't include errors - those are
-  // thrown via the standard promise/observer catch mechanism
+  loading: boolean;
+
+  // This type is different from the GraphQLResult type because it doesn't include errors.
+  // Those are thrown via the standard promise/observer catch mechanism.
 }
 
 // A map going from the name of a fragment to that fragment's definition.
@@ -143,6 +144,7 @@ this in the docs: http://docs.apollostack.com/`);
       fragmentDefinitionsMap[fragmentName] = [fragmentDefinition];
     }
   });
+
   return fragments.concat(fragmentDefinitions);
 }
 
@@ -266,6 +268,7 @@ export default class ApolloClient {
     fragments?: FragmentDefinition[],
     optimisticResponse?: Object,
     updateQueries?: MutationQueryReducersMap,
+    refetchQueries?: string[],
   }): Promise<ApolloQueryResult> => {
     this.initStore();
     return this.queryManager.mutate(options);

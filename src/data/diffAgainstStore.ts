@@ -340,7 +340,7 @@ function diffFieldAgainstStore({
   if (fieldMissing) {
     if (throwOnMissingField && included) {
       throw new ApolloError({
-        errorMessage: `Can't find field ${storeFieldKey} on object ${JSON.stringify(storeObj)}.
+        errorMessage: `Can't find field ${storeFieldKey} on object (${rootId}) ${JSON.stringify(storeObj, null, 2)}.
 Perhaps you want to use the \`returnPartialData\` option?`,
         extraInfo: {
           isFieldError: true,
