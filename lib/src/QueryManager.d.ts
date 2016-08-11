@@ -81,6 +81,7 @@ export declare class QueryManager {
         querySelectionSet: SelectionSet;
         queryFragments: FragmentDefinition[];
     };
+    transformResult(result: ApolloQueryResult): ApolloQueryResult;
     private collectResultBehaviorsFromUpdateQueries(updateQueries, mutationResult, isOptimistic?);
     private transformQueryDocument(options);
     private handleDiffQuery({queryDef, rootId, variables, fragmentMap, noFetch});
@@ -88,7 +89,6 @@ export declare class QueryManager {
     private fetchQueryOverInterface(queryId, options, networkInterface);
     private refetchQueryByName(queryName);
     private isDifferentResult(queryId, result);
-    private transformResult(result);
     private broadcastQueries();
     private generateRequestId();
 }
