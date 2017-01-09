@@ -786,24 +786,28 @@ export class QueryManager {
       previousResult: lastResult ? lastResult.data : undefined,
     };
 
+    let data = {};
+    let partial = true;
     try {
       // first try reading the full result from the store
-      const data = readQueryFromStore(readOptions);
-      return maybeDeepFreeze({ data, partial: false });
+      data = readQueryFromStore(readOptions);
+      partial = false;
     } catch (e) {
       // next, try reading partial results, if we want them
       if (queryOptions.returnPartialData || queryOptions.noFetch) {
         try {
           readOptions.returnPartialData = true;
-          const data = readQueryFromStore(readOptions);
-          return { data, partial: true };
+          data = readQueryFromStore(readOptions);
         } catch (e) {
           // fall through
         }
       }
-
-      return maybeDeepFreeze({ data: {}, partial: true });
     }
+
+    // It's a bit annoying that resultTransformer expects an ApolloQueryResult and not just data.
+    const transformed = this.transformResult({ data, loading: false, networkStatus: NetworkStatus.ready });
+
+    return maybeDeepFreeze({ data: transformed.data, partial });
   }
 
   public getQueryWithPreviousResult<T>(queryIdOrObservable: string | ObservableQuery<T>, isOptimistic = false) {
