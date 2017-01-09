@@ -3132,7 +3132,7 @@ describe('QueryManager', () => {
       return observableToPromise({ observable },
         () => {
           const result = observable.currentResult();
-          assert.deepEqual(result.data, {foo: 123, transformCount: 1});
+          assert.isNumber(result.data.transformCount);
         },
       );
     });

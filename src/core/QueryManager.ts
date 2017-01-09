@@ -766,24 +766,28 @@ export class QueryManager {
       config: this.reducerConfig,
     };
 
+    let data = {};
+    let partial = true;
     try {
       // first try reading the full result from the store
-      const data = readQueryFromStore(readOptions);
-      return { data, partial: false };
+      data = readQueryFromStore(readOptions);
+      partial = false;
     } catch (e) {
       // next, try reading partial results, if we want them
       if (queryOptions.returnPartialData || queryOptions.noFetch) {
         try {
           readOptions.returnPartialData = true;
-          const data = readQueryFromStore(readOptions);
-          return { data, partial: true };
+          data = readQueryFromStore(readOptions);
         } catch (e) {
           // fall through
         }
       }
-
-      return { data: {}, partial: true };
     }
+
+    // It's a bit annoying that resultTransformer expects an ApolloQueryResult and not just data.
+    const transformed = this.transformResult({ data, loading: false, networkStatus: null });
+
+    return { data: transformed.data, partial };
   }
 
   public getQueryWithPreviousResult(queryIdOrObservable: string | ObservableQuery, isOptimistic = false) {
