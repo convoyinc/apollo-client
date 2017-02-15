@@ -1,14 +1,18 @@
 import {
   createStore,
-  compose,
+  compose as reduxCompose,
   applyMiddleware,
   combineReducers,
+  Middleware,
 } from 'redux';
 
 import {
   data,
-  NormalizedCache,
 } from './data/store';
+
+import {
+  NormalizedCache,
+} from './data/storeUtils';
 
 import {
   queries,
@@ -21,24 +25,38 @@ import {
 } from './mutations/store';
 
 import {
+  optimistic,
+  OptimisticStore,
+  getDataWithOptimisticResults,
+} from './optimistic-data/store';
+export { getDataWithOptimisticResults };
+
+import {
   ApolloAction,
 } from './actions';
 
 import {
   IdGetter,
-} from './data/extensions';
+} from './core/types';
 
 import {
-  MutationBehaviorReducerMap,
-} from './data/mutationResults';
+  CustomResolverMap,
+} from './data/readFromStore';
+
+import { assign } from './util/assign';
 
 export interface Store {
   data: NormalizedCache;
   queries: QueryStore;
   mutations: MutationStore;
+  optimistic: OptimisticStore;
+  reducerError: Error | null;
 }
 
-// This is our interface on top of Redux to get types in our actions
+/**
+ * This is an interface that describes the behavior of a Apollo store, which is currently
+ * implemented through redux.
+ */
 export interface ApolloStore {
   dispatch: (action: ApolloAction) => void;
 
@@ -47,7 +65,7 @@ export interface ApolloStore {
   getState: () => any;
 }
 
-const crashReporter = store => next => action => {
+const crashReporter = (store: any) => (next: any) => (action: any) => {
   try {
     return next(action);
   } catch (err) {
@@ -57,18 +75,53 @@ const crashReporter = store => next => action => {
   }
 };
 
+export type ApolloReducer = (store: NormalizedCache, action: ApolloAction) => NormalizedCache;
+
 export function createApolloReducer(config: ApolloReducerConfig): Function {
   return function apolloReducer(state = {} as Store, action: ApolloAction) {
-    const newState = {
-      queries: queries(state.queries, action),
-      mutations: mutations(state.mutations, action),
+    try {
+      const newState: Store = {
+        queries: queries(state.queries, action),
+        mutations: mutations(state.mutations, action),
 
-      // Note that we are passing the queries into this, because it reads them to associate
-      // the query ID in the result with the actual query
-      data: data(state.data, action, state.queries, state.mutations, config),
-    };
+        // Note that we are passing the queries into this, because it reads them to associate
+        // the query ID in the result with the actual query
+        data: data(state.data, action, state.queries, state.mutations, config),
+        optimistic: [] as any,
 
-    return newState;
+        reducerError: null,
+      };
+
+      // use the two lines below to debug tests :)
+      // console.log('ACTION', action.type, action);
+      // console.log('new state', newState);
+
+      // Note, we need to have the results of the
+      // APOLLO_MUTATION_INIT action to simulate
+      // the APOLLO_MUTATION_RESULT action. That's
+      // why we pass in newState
+      newState.optimistic = optimistic(
+        state.optimistic,
+        action,
+        newState,
+        config,
+      );
+
+      if (state.data === newState.data &&
+      state.mutations === newState.mutations &&
+      state.queries === newState.queries &&
+      state.optimistic === newState.optimistic &&
+      state.reducerError === newState.reducerError) {
+        return state;
+      }
+
+      return newState;
+    } catch (reducerError) {
+      return {
+        ...state,
+        reducerError,
+      };
+    }
   };
 }
 
@@ -76,19 +129,31 @@ export function createApolloStore({
   reduxRootKey = 'apollo',
   initialState,
   config = {},
-  reportCrashes,
+  reportCrashes = true,
+  logger,
 }: {
   reduxRootKey?: string,
   initialState?: any,
   config?: ApolloReducerConfig,
   reportCrashes?: boolean,
+  logger?: Middleware,
 } = {}): ApolloStore {
-  const enhancers = [];
+  const enhancers: any[] = [];
+  const middlewares: Middleware[] = [];
 
-  if (reportCrashes === undefined) {
-    reportCrashes = true;
+  if (reportCrashes) {
+    middlewares.push(crashReporter);
   }
 
+  if (logger) {
+    middlewares.push(logger);
+  }
+
+  if (middlewares.length > 0) {
+    enhancers.push(applyMiddleware(...middlewares));
+  }
+
+  // Dev tools enhancer should be last
   if (typeof window !== 'undefined') {
     const anyWindow = window as any;
     if (anyWindow.devToolsExtension) {
@@ -96,19 +161,28 @@ export function createApolloStore({
     }
   }
 
-  if (reportCrashes) {
-    enhancers.push(applyMiddleware(crashReporter));
+  // XXX to avoid type fail
+  const compose: (...args: any[]) => () => any = reduxCompose;
+
+  // Note: The below checks are what make it OK for QueryManager to start from 0 when generating
+  // new query IDs. If we let people rehydrate query state for some reason, we would need to make
+  // sure newly generated IDs don't overlap with old queries.
+  if ( initialState && initialState[reduxRootKey] && initialState[reduxRootKey]['queries']) {
+    throw new Error('Apollo initial state may not contain queries, only data');
+  }
+
+  if ( initialState && initialState[reduxRootKey] && initialState[reduxRootKey]['mutations']) {
+    throw new Error('Apollo initial state may not contain mutations, only data');
   }
 
   return createStore(
-    combineReducers({ [reduxRootKey]: createApolloReducer(config) }),
+    combineReducers({ [reduxRootKey]: createApolloReducer(config) as any }), // XXX see why this type fails
     initialState,
-    compose(...enhancers) as () => any // XXX see why this type fails
+    compose(...enhancers),
   );
 }
 
-
-export interface ApolloReducerConfig {
+export type ApolloReducerConfig = {
   dataIdFromObject?: IdGetter;
-  mutationBehaviorReducers?: MutationBehaviorReducerMap;
-}
+  customResolvers?: CustomResolverMap;
+};

@@ -3,16 +3,16 @@ import {
   getFragmentDefinitions,
   getQueryDefinition,
   getMutationDefinition,
-  replaceOperationDefinition,
   createFragmentMap,
   FragmentMap,
   getOperationName,
 } from '../src/queries/getFromAST';
 
 import {
-  FragmentDefinition,
-  OperationDefinition,
+  FragmentDefinitionNode,
+  OperationDefinitionNode,
 } from 'graphql';
+
 import { print } from 'graphql-tag/printer';
 import gql from 'graphql-tag';
 import { assert } from 'chai';
@@ -66,7 +66,7 @@ describe('AST utility functions', () => {
         firstName
         lastName
       }`;
-    const expectedResult: FragmentDefinition[] = [expectedDoc.definitions[0] as FragmentDefinition];
+    const expectedResult: FragmentDefinitionNode[] = [expectedDoc.definitions[0] as FragmentDefinitionNode];
     const actualResult = getFragmentDefinitions(singleFragmentDefinition);
     assert.equal(actualResult.length, expectedResult.length);
     assert.equal(print(actualResult[0]), print(expectedResult[0]));
@@ -95,11 +95,10 @@ describe('AST utility functions', () => {
       fragment moreAuthorDetails on Author {
         address
       }`;
-    const expectedResult: FragmentDefinition[] = [
-      expectedDoc.definitions[0] as FragmentDefinition,
-      expectedDoc.definitions[1] as FragmentDefinition,
+    const expectedResult: FragmentDefinitionNode[] = [
+      expectedDoc.definitions[0] as FragmentDefinitionNode,
+      expectedDoc.definitions[1] as FragmentDefinitionNode,
     ];
-
     const actualResult = getFragmentDefinitions(multipleFragmentDefinitions);
     assert.deepEqual(actualResult.map(print), expectedResult.map(print));
   });
@@ -126,7 +125,7 @@ describe('AST utility functions', () => {
           ...moreAuthorDetails
         }
       }`;
-    const expectedResult: OperationDefinition = expectedDoc.definitions[0] as OperationDefinition;
+    const expectedResult: OperationDefinitionNode = expectedDoc.definitions[0] as OperationDefinitionNode;
     const actualResult = getQueryDefinition(queryWithFragments);
 
     assert.equal(print(actualResult), print(expectedResult));
@@ -166,45 +165,9 @@ describe('AST utility functions', () => {
           ...authorDetails
         }
       }`;
-    const expectedResult: OperationDefinition = expectedDoc.definitions[0] as OperationDefinition;
+    const expectedResult: OperationDefinitionNode = expectedDoc.definitions[0] as OperationDefinitionNode;
     const actualResult = getMutationDefinition(mutationWithFragments);
     assert.equal(print(actualResult), print(expectedResult));
-  });
-
-  it('should replace the operation definition correctly', () => {
-    const queryWithFragments = gql`
-      fragment authorDetails on Author {
-        firstName
-        lastName
-      }
-      query {
-        author {
-          ...authorDetails
-        }
-      }`;
-    const newQueryDef = getQueryDefinition(gql`
-      query {
-        author {
-          ...authorDetails
-          __typename
-        }
-        __typename
-      }`);
-    const expectedNewQuery = gql`
-      fragment authorDetails on Author {
-        firstName
-        lastName
-      }
-
-      query {
-        author {
-          ...authorDetails
-          __typename
-        }
-        __typename
-      }`;
-    const newDoc = replaceOperationDefinition(queryWithFragments, newQueryDef);
-    assert.equal(print(newDoc), print(expectedNewQuery));
   });
 
   it('should create the fragment map correctly', () => {
@@ -224,6 +187,10 @@ describe('AST utility functions', () => {
     assert.deepEqual(fragmentMap, expectedTable);
   });
 
+  it('should return an empty fragment map if passed undefined argument', () => {
+    assert.deepEqual(createFragmentMap(undefined), {});
+  });
+
   it('should get the operation name out of a query', () => {
     const query = gql`
       query nameOfQuery {
@@ -240,5 +207,26 @@ describe('AST utility functions', () => {
       }`;
     const operationName = getOperationName(query);
     assert.equal(operationName, 'nameOfMutation');
+  });
+
+  it('should throw if type definitions found in document', () => {
+    const queryWithTypeDefination = gql`
+      fragment authorDetails on Author {
+        firstName
+        lastName
+      }
+
+      query($search: AuthorSearchInputType) {
+        author(search: $search) {
+          ...authorDetails
+        }
+      }
+
+      input AuthorSearchInputType {
+        firstName: String
+      }`;
+    assert.throws(() => {
+      getQueryDefinition(queryWithTypeDefination);
+    }, 'Schema type definitions not allowed in queries. Found: "InputObjectTypeDefinition"');
   });
 });

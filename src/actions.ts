@@ -1,23 +1,25 @@
 import {
-  GraphQLResult,
+  DocumentNode,
+  ExecutionResult,
 } from 'graphql';
 
 import {
-  SelectionSetWithRoot,
-} from './queries/store';
-
-import {
-  MutationBehavior,
+  MutationQueryReducer,
 } from './data/mutationResults';
 
-import { FragmentMap } from './queries/getFromAST';
+import {
+  ApolloReducer,
+} from './store';
 
-export interface QueryResultAction {
+export type QueryResultAction = {
   type: 'APOLLO_QUERY_RESULT';
-  result: GraphQLResult;
+  result: ExecutionResult;
   queryId: string;
+  document: DocumentNode;
+  operationName: string;
   requestId: number;
-}
+  extraReducers?: ApolloReducer[];
+};
 
 export function isQueryResultAction(action: ApolloAction): action is QueryResultAction {
   return action.type === 'APOLLO_QUERY_RESULT';
@@ -37,15 +39,16 @@ export function isQueryErrorAction(action: ApolloAction): action is QueryErrorAc
 export interface QueryInitAction {
   type: 'APOLLO_QUERY_INIT';
   queryString: string;
-  query: SelectionSetWithRoot;
-  minimizedQueryString: string;
-  minimizedQuery: SelectionSetWithRoot;
+  document: DocumentNode;
   variables: Object;
   forceFetch: boolean;
   returnPartialData: boolean;
   queryId: string;
   requestId: number;
-  fragmentMap: FragmentMap;
+  storePreviousVariables: boolean;
+  isRefetch: boolean;
+  isPoll: boolean;
+  metadata: any;
 }
 
 export function isQueryInitAction(action: ApolloAction): action is QueryInitAction {
@@ -54,9 +57,10 @@ export function isQueryInitAction(action: ApolloAction): action is QueryInitActi
 
 export interface QueryResultClientAction {
   type: 'APOLLO_QUERY_RESULT_CLIENT';
-  result: GraphQLResult;
+  result: ExecutionResult;
   complete: boolean;
   queryId: string;
+  requestId: number;
 }
 
 export function isQueryResultClientAction(action: ApolloAction): action is QueryResultClientAction {
@@ -75,25 +79,54 @@ export function isQueryStopAction(action: ApolloAction): action is QueryStopActi
 export interface MutationInitAction {
   type: 'APOLLO_MUTATION_INIT';
   mutationString: string;
-  mutation: SelectionSetWithRoot;
+  mutation: DocumentNode;
   variables: Object;
+  operationName: string;
   mutationId: string;
-  fragmentMap: FragmentMap;
+  optimisticResponse: Object | undefined;
+  extraReducers?: ApolloReducer[];
+  updateQueries?: { [queryId: string]: MutationQueryReducer };
 }
 
 export function isMutationInitAction(action: ApolloAction): action is MutationInitAction {
   return action.type === 'APOLLO_MUTATION_INIT';
 }
 
+// TODO REFACOTR: simplify all these actions by providing a generic options field to all actions.
 export interface MutationResultAction {
   type: 'APOLLO_MUTATION_RESULT';
-  result: GraphQLResult;
+  result: ExecutionResult;
+  document: DocumentNode;
+  operationName: string;
+  variables: Object;
   mutationId: string;
-  resultBehaviors?: MutationBehavior[];
+  extraReducers?: ApolloReducer[];
+  updateQueries?: { [queryId: string]: MutationQueryReducer };
 }
 
 export function isMutationResultAction(action: ApolloAction): action is MutationResultAction {
   return action.type === 'APOLLO_MUTATION_RESULT';
+}
+
+export interface MutationErrorAction {
+  type: 'APOLLO_MUTATION_ERROR';
+  error: Error;
+  mutationId: string;
+};
+
+export function isMutationErrorAction(action: ApolloAction): action is MutationErrorAction {
+  return action.type === 'APOLLO_MUTATION_ERROR';
+}
+
+export interface UpdateQueryResultAction {
+  type: 'APOLLO_UPDATE_QUERY_RESULT';
+  variables: any;
+  document: DocumentNode;
+  newResult: Object;
+}
+
+export function isUpdateQueryResultAction(action: ApolloAction): action is UpdateQueryResultAction {
+  return action.type === 'APOLLO_UPDATE_QUERY_RESULT';
 }
 
 export interface StoreResetAction {
@@ -105,6 +138,20 @@ export function isStoreResetAction(action: ApolloAction): action is StoreResetAc
   return action.type === 'APOLLO_STORE_RESET';
 }
 
+export type SubscriptionResultAction = {
+  type: 'APOLLO_SUBSCRIPTION_RESULT';
+  result: ExecutionResult;
+  subscriptionId: number;
+  variables: Object;
+  document: DocumentNode;
+  operationName: string;
+  extraReducers?: ApolloReducer[];
+};
+
+export function isSubscriptionResultAction(action: ApolloAction): action is SubscriptionResultAction {
+  return action.type === 'APOLLO_SUBSCRIPTION_RESULT';
+}
+
 export type ApolloAction =
   QueryResultAction |
   QueryErrorAction |
@@ -113,4 +160,7 @@ export type ApolloAction =
   QueryStopAction |
   MutationInitAction |
   MutationResultAction |
-  StoreResetAction;
+  MutationErrorAction |
+  UpdateQueryResultAction |
+  StoreResetAction |
+  SubscriptionResultAction;

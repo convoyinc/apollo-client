@@ -1,7 +1,8 @@
 import * as chai from 'chai';
 import * as chaiAsPromised from 'chai-as-promised';
 
-import { assign } from 'lodash';
+import { assign, isEqual } from 'lodash';
+import * as fetchMock from 'fetch-mock';
 
 // make it easy to assert with promises
 chai.use(chaiAsPromised);
@@ -10,65 +11,157 @@ const { assert, expect } = chai;
 
 import {
   createNetworkInterface,
-  addQueryMerging,
-  NetworkInterface,
-  Request,
-} from '../src/networkInterface';
+//  NetworkInterface,
+//  Request,
+} from '../src/transport/networkInterface';
 
 import {
   MiddlewareRequest,
-} from '../src/middleware';
+} from '../src/transport/middleware';
+
+import {
+  AfterwareResponse,
+} from '../src/transport/afterware';
 
 import gql from 'graphql-tag';
 
 import { print } from 'graphql-tag/printer';
 
-import { GraphQLResult } from 'graphql';
+import { withWarning } from './util/wrap';
 
 describe('network interface', () => {
+  const swapiUrl = 'http://graphql-swapi.test/';
+  const missingUrl = 'http://does-not-exist.test/';
+
+  const unauthorizedUrl = 'http://unauthorized.test/';
+  const serviceUnavailableUrl = 'http://service-unavailable.test/';
+
+  const simpleQueryWithNoVars = gql`
+    query people {
+      allPeople(first: 1) {
+        people {
+          name
+        }
+      }
+    }
+  `;
+
+  const simpleQueryWithVar = gql`
+    query people($personNum: Int!) {
+      allPeople(first: $personNum) {
+        people {
+          name
+        }
+      }
+    }
+  `;
+
+  const simpleResult = {
+    data: {
+      allPeople: {
+        people: [
+          {
+            name: 'Luke Skywalker',
+          },
+        ],
+      },
+    },
+  };
+
+  const complexQueryWithTwoVars = gql`
+    query people($personNum: Int!, $filmNum: Int!) {
+      allPeople(first: $personNum) {
+        people {
+          name
+          filmConnection(first: $filmNum) {
+            edges {
+              node {
+                id
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const complexResult = {
+    data: {
+      allPeople: {
+        people: [
+          {
+            name: 'Luke Skywalker',
+            filmConnection: {
+              edges: [
+                {
+                  node: {
+                    id: 'ZmlsbXM6MQ==',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  };
+
+  // We mock the network interface to return the results that the SWAPI would.
   before(() => {
-    this.realFetch = global['fetch'];
+    // We won't be too careful about counting calls or closely checking
+    // parameters, but just do the basic stuff to ensure the request looks right
+    fetchMock.post(swapiUrl, (url, opts) => {
+      const { query, variables } = JSON.parse((opts as RequestInit).body!.toString());
 
-    global['fetch'] = ((url, opts) => {
-      this.lastFetchOpts = opts;
-      if (url === 'http://does-not-exist.test/') {
-        return Promise.reject('Network error');
+      if (query === print(simpleQueryWithNoVars)) {
+        return simpleResult;
       }
 
-      if (url === 'http://graphql-swapi.test/') {
-        url = 'http://graphql-swapi.parseapp.com/';
+      if (query === print(simpleQueryWithVar)
+          && isEqual(variables, { personNum: 1 })) {
+        return simpleResult;
       }
 
-      // XXX swapi graphql NPM package is broken now
-      // else if (url === 'http://graphql-swapi.test/') {
-      //   return new Promise((resolve, reject) => {
-      //     const request = JSON.parse(opts.body);
-      //     graphql(swapiSchema, request.query, undefined, request.variables).then(result => {
-      //       const response = new global['Response'](JSON.stringify(result));
-      //       resolve(response);
-      //     }).catch(error => {
-      //       reject(error);
-      //     });
-      //   });
-      // }
+      if (query === print(complexQueryWithTwoVars)
+          && isEqual(variables, { personNum: 1, filmNum: 1 })) {
+        return complexResult;
+      }
 
-      return this.realFetch(url, opts);
+      throw new Error('Invalid Query');
     });
+    fetchMock.post(missingUrl, () => {
+      throw new Error('Network error');
+    });
+
+    fetchMock.post(unauthorizedUrl, 403);
+    fetchMock.post(serviceUnavailableUrl, 503);
   });
 
   after(() => {
-    global['fetch'] = this.realFetch;
+    fetchMock.restore();
   });
 
   describe('creating a network interface', () => {
+    it('should throw without an argument', () => {
+      assert.throws(() => {
+        createNetworkInterface(undefined as any);
+      }, /must pass an options argument/);
+    });
+
     it('should throw without an endpoint', () => {
       assert.throws(() => {
-        createNetworkInterface(null);
-      }, /A remote enpdoint is required for a network layer/);
+        createNetworkInterface({});
+      }, /A remote endpoint is required for a network layer/);
+    });
+
+    it('should warn when the endpoint is passed as the first argument', () => {
+      withWarning(() => {
+        createNetworkInterface('/graphql');
+      }, /Passing the URI as the first argument to createNetworkInterface is deprecated/);
     });
 
     it('should create an instance with a given uri', () => {
-      const networkInterface = createNetworkInterface('/graphql');
+      const networkInterface = createNetworkInterface({ uri: '/graphql' });
       assert.equal(networkInterface._uri, '/graphql');
     });
 
@@ -78,7 +171,7 @@ describe('network interface', () => {
         credentials: 'include',
       };
 
-      const networkInterface = createNetworkInterface('/graphql', customOpts);
+      const networkInterface = createNetworkInterface({ uri: '/graphql', opts: customOpts });
 
       assert.deepEqual(networkInterface._opts, assign({}, customOpts));
     });
@@ -90,7 +183,7 @@ describe('network interface', () => {
       };
       const originalOpts = assign({}, customOpts);
 
-      const networkInterface = createNetworkInterface('/graphql', customOpts);
+      const networkInterface = createNetworkInterface({ uri: '/graphql', opts: customOpts });
 
       delete customOpts.headers;
 
@@ -100,9 +193,8 @@ describe('network interface', () => {
 
   describe('middleware', () => {
     it('should throw an error if you pass something bad', () => {
-      const malWare = new TestWare();
-      delete malWare.applyMiddleware;
-      const networkInterface = createNetworkInterface('/graphql');
+      const malWare: any = {};
+      const networkInterface = createNetworkInterface({ uri: '/graphql' });
 
       try {
         networkInterface.use([malWare]);
@@ -110,329 +202,284 @@ describe('network interface', () => {
       } catch (error) {
         assert.equal(
           error.message,
-          'Middleware must implement the applyMiddleware function'
+          'Middleware must implement the applyMiddleware function',
         );
       }
 
     });
 
     it('should take a middleware and assign it', () => {
-      const testWare = new TestWare();
+      const testWare = TestWare();
 
-      const networkInterface = createNetworkInterface('/graphql');
+      const networkInterface = createNetworkInterface({ uri: '/graphql' });
       networkInterface.use([testWare]);
 
       assert.equal(networkInterface._middlewares[0], testWare);
     });
 
     it('should take more than one middleware and assign it', () => {
-      const testWare1 = new TestWare();
-      const testWare2 = new TestWare();
+      const testWare1 = TestWare();
+      const testWare2 = TestWare();
 
-      const networkInterface = createNetworkInterface('/graphql');
+      const networkInterface = createNetworkInterface({ uri: '/graphql' });
       networkInterface.use([testWare1, testWare2]);
 
       assert.deepEqual(networkInterface._middlewares, [testWare1, testWare2]);
     });
 
-    it('should alter the request', () => {
-      const testWare1 = new TestWare([
+    it('should alter the request variables', () => {
+      const testWare1 = TestWare([
         { key: 'personNum', val: 1 },
       ]);
 
-      const swapi = createNetworkInterface('http://graphql-swapi.test/');
+      const swapi = createNetworkInterface({ uri: swapiUrl });
       swapi.use([testWare1]);
       // this is a stub for the end user client api
       const simpleRequest = {
-        query: gql`
-          query people($personNum: Int!) {
-            allPeople(first: $personNum) {
-              people {
-                name
-              }
-            }
-          }
-        `,
+        query: simpleQueryWithVar,
         variables: {},
         debugName: 'People query',
       };
 
       return assert.eventually.deepEqual(
         swapi.query(simpleRequest),
-        {
-          data: {
-            allPeople: {
-              people: [
-                {
-                  name: 'Luke Skywalker',
-                },
-              ],
-            },
-          },
-        }
+        simpleResult,
       );
     });
 
     it('should alter the options but not overwrite defaults', () => {
-      const testWare1 = new TestWare([], [
+      const testWare1 = TestWare([], [
         { key: 'planet', val: 'mars' },
       ]);
 
-      const swapi = createNetworkInterface('http://graphql-swapi.test/');
+      const swapi = createNetworkInterface({ uri: swapiUrl });
       swapi.use([testWare1]);
       // this is a stub for the end user client api
       const simpleRequest = {
-        query: gql`
-          query people {
-            allPeople(first: 1) {
-              people {
-                name
-              }
-            }
-          }
-        `,
+        query: simpleQueryWithNoVars,
         variables: {},
         debugName: 'People query',
       };
 
       return swapi.query(simpleRequest).then((data) => {
-        assert.equal(this.lastFetchOpts.planet, 'mars');
-        assert.notOk(swapi._opts['planet']);
+        assert.equal((fetchMock.lastCall()[1] as any).planet, 'mars');
+        assert.notOk((<any>swapi._opts)['planet']);
+      });
+    });
+
+    it('should alter the request body params', () => {
+      const testWare1 = TestWare([], [], [
+        { key: 'newParam', val: '0123456789' },
+      ]);
+
+      const swapi = createNetworkInterface({ uri: 'http://graphql-swapi.test/' });
+      swapi.use([testWare1]);
+      const simpleRequest = {
+        query: simpleQueryWithVar,
+        variables: { personNum: 1 },
+        debugName: 'People query',
+      };
+
+      return swapi.query(simpleRequest).then((data) => {
+        return assert.deepEqual(
+          JSON.parse((fetchMock.lastCall()[1] as any).body),
+          {
+            query: 'query people($personNum: Int!) {\n  allPeople(first: $personNum) {\n    people {\n      name\n    }\n  }\n}\n',
+            variables: { personNum: 1 },
+            debugName: 'People query',
+            newParam: '0123456789',
+          },
+        );
       });
     });
 
     it('handle multiple middlewares', () => {
-      const testWare1 = new TestWare([
+      const testWare1 = TestWare([
         { key: 'personNum', val: 1 },
       ]);
-      const testWare2 = new TestWare([
+      const testWare2 = TestWare([
         { key: 'filmNum', val: 1 },
       ]);
 
-      const swapi = createNetworkInterface('http://graphql-swapi.test/');
+      const swapi = createNetworkInterface({ uri: 'http://graphql-swapi.test/' });
       swapi.use([testWare1, testWare2]);
       // this is a stub for the end user client api
       const simpleRequest = {
-        query: gql`
-          query people($personNum: Int!, $filmNum: Int!) {
-            allPeople(first: $personNum) {
-              people {
-                name
-                filmConnection(first: $filmNum) {
-                  edges {
-                    node {
-                      id
-                    }
-                  }
-                }
-              }
-            }
-          }
-        `,
+        query: complexQueryWithTwoVars,
         variables: {},
         debugName: 'People query',
       };
 
       return assert.eventually.deepEqual(
         swapi.query(simpleRequest),
-        {
-          data: {
-            allPeople: {
-              people: [
-                {
-                  name: 'Luke Skywalker',
-                  filmConnection: {
-                    edges: [
-                      {
-                        node: {
-                          id: 'ZmlsbXM6MQ==',
-                        },
-                      },
-                    ],
-                  },
-                },
-              ],
-            },
-          },
-        }
+        complexResult,
       );
     });
+
+    it('should chain use() calls', () => {
+      const testWare1 = TestWare([
+        { key: 'personNum', val: 1 },
+      ]);
+      const testWare2 = TestWare([
+        { key: 'filmNum', val: 1 },
+      ]);
+
+      const swapi = createNetworkInterface({ uri: swapiUrl });
+      swapi.use([testWare1])
+        .use([testWare2]);
+      const simpleRequest = {
+        query: complexQueryWithTwoVars,
+        variables: {},
+        debugName: 'People query',
+      };
+
+      return assert.eventually.deepEqual(
+        swapi.query(simpleRequest),
+        complexResult,
+      );
+    });
+
+    it('should chain use() and useAfter() calls', () => {
+      const testWare1 = TestWare();
+      const testWare2 = TestAfterWare();
+
+      const networkInterface = createNetworkInterface({ uri: swapiUrl });
+      networkInterface.use([testWare1])
+        .useAfter([testWare2]);
+      assert.deepEqual(networkInterface._middlewares, [testWare1]);
+      assert.deepEqual(networkInterface._afterwares, [testWare2]);
+    });
+
+  });
+
+  describe('afterware', () => {
+    it('should return errors thrown in afterwares', () => {
+      const networkInterface = createNetworkInterface({ uri: swapiUrl });
+      networkInterface.useAfter([{
+        applyAfterware() {
+          throw Error('Afterware error');
+        },
+      }]);
+
+      const simpleRequest = {
+        query: simpleQueryWithNoVars,
+        variables: {},
+        debugName: 'People query',
+      };
+
+      return assert.isRejected(
+        networkInterface.query(simpleRequest),
+        Error,
+        'Afterware error',
+      );
+    });
+    it('should throw an error if you pass something bad', () => {
+      const malWare = TestAfterWare();
+      delete malWare.applyAfterware;
+      const networkInterface = createNetworkInterface({ uri: '/graphql' });
+
+      try {
+        networkInterface.useAfter([malWare]);
+        expect.fail();
+      } catch (error) {
+        assert.equal(
+          error.message,
+          'Afterware must implement the applyAfterware function',
+        );
+      }
+
+    });
+
+    it('should take a afterware and assign it', () => {
+      const testWare = TestAfterWare();
+
+      const networkInterface = createNetworkInterface({ uri: '/graphql' });
+      networkInterface.useAfter([testWare]);
+
+      assert.equal(networkInterface._afterwares[0], testWare);
+    });
+
+    it('should take more than one afterware and assign it', () => {
+      const testWare1 = TestAfterWare();
+      const testWare2 = TestAfterWare();
+
+      const networkInterface = createNetworkInterface({ uri: '/graphql' });
+      networkInterface.useAfter([testWare1, testWare2]);
+
+      assert.deepEqual(networkInterface._afterwares, [testWare1, testWare2]);
+    });
+
+    it('should chain useAfter() calls', () => {
+      const testWare1 = TestAfterWare();
+      const testWare2 = TestAfterWare();
+
+      const networkInterface = createNetworkInterface({ uri: '/graphql' });
+      networkInterface.useAfter([testWare1])
+        .useAfter([testWare2]);
+
+      assert.deepEqual(networkInterface._afterwares, [testWare1, testWare2]);
+    });
+
+    it('should chain useAfter() and use() calls', () => {
+      const testWare1 = TestAfterWare();
+      const testWare2 = TestWare();
+
+      const networkInterface = createNetworkInterface({ uri: swapiUrl });
+      networkInterface.useAfter([testWare1])
+        .use([testWare2]);
+      assert.deepEqual(networkInterface._middlewares, [testWare2]);
+      assert.deepEqual(networkInterface._afterwares, [testWare1]);
+    });
+
   });
 
   describe('making a request', () => {
+    // this is a stub for the end user client api
+    const doomedToFail = {
+      query: simpleQueryWithNoVars,
+      variables: {},
+      debugName: 'People Query',
+    };
+
     it('should fetch remote data', () => {
-      const swapi = createNetworkInterface('http://graphql-swapi.test/');
+      const swapi = createNetworkInterface({ uri: swapiUrl });
 
       // this is a stub for the end user client api
       const simpleRequest = {
-        query: gql`
-          query people {
-            allPeople(first: 1) {
-              people {
-                name
-              }
-            }
-          }
-        `,
+        query: simpleQueryWithNoVars,
         variables: {},
         debugName: 'People query',
       };
 
       return assert.eventually.deepEqual(
         swapi.query(simpleRequest),
-        {
-          data: {
-            allPeople: {
-              people: [
-                {
-                  name: 'Luke Skywalker',
-                },
-              ],
-            },
-          },
-        }
+        simpleResult,
       );
     });
 
     it('should throw on a network error', () => {
-      const nowhere = createNetworkInterface('http://does-not-exist.test/');
-
-      // this is a stub for the end user client api
-      const doomedToFail = {
-        query: gql`
-          query people {
-            allPeople(first: 1) {
-              people {
-                name
-              }
-            }
-          }
-        `,
-        variables: {},
-        debugName: 'People Query',
-      };
+      const nowhere = createNetworkInterface({ uri: missingUrl });
 
       return assert.isRejected(nowhere.query(doomedToFail));
     });
-  });
 
-  describe('query merging', () => {
-    it('should merge together queries when we call batchQuery()', (done) => {
-      const query1 = gql`
-        query authorStuff {
-          author {
-            name
-          }
-        }`;
-      const query2 = gql`
-        query cookieStuff {
-          fortuneCookie
-        }`;
-      const composedQuery = gql`
-        query ___composed {
-          ___authorStuff___requestIndex_0___fieldIndex_0: author {
-            name
-          }
-          ___cookieStuff___requestIndex_1___fieldIndex_0: fortuneCookie
-        }`;
-      const request1 = { query: query1 };
-      const request2 = { query: query2 };
+    it('should throw an error with the response when request is forbidden', () => {
+      const unauthorizedInterface = createNetworkInterface({ uri: unauthorizedUrl });
 
-      const myNetworkInterface: NetworkInterface = {
-        query(request: Request): Promise<GraphQLResult> {
-          assert.equal(print(request.query), print(composedQuery));
-          done();
-          return new Promise((resolve, reject) => {
-            // never resolve
-          });
-        },
-      };
-      const mergingNetworkInterface = addQueryMerging(myNetworkInterface);
-      mergingNetworkInterface.batchQuery([request1, request2]);
-    });
-
-    it('should unpack merged query results when we call batchQuery()', (done) => {
-      const query1 = gql`
-        query authorStuff {
-          author {
-            name
-          }
-        }`;
-      const query2 = gql`
-        query cookieStuff {
-          fortuneCookie
-        }`;
-      const composedQuery = gql`
-        query ___composed {
-          ___authorStuff___requestIndex_0___fieldIndex_0: author {
-            name
-          }
-          ___cookieStuff___requestIndex_1___fieldIndex_0: fortuneCookie
-        }`;
-      const fortune = 'No snowflake in an avalanche feels responsible.';
-      const result1 = {
-        data: {
-          author: {
-            name: 'John Smith',
-          },
-        },
-      };
-      const result2 = {
-        data: {
-          fortuneCookie: fortune,
-        },
-      };
-      const composedResult = {
-        data: {
-          ___authorStuff___requestIndex_0___fieldIndex_0: {
-            name: 'John Smith',
-          },
-          ___cookieStuff___requestIndex_1___fieldIndex_0: fortune,
-        },
-      };
-      const request1 = { query: query1 };
-      const request2 = { query: query2 };
-
-      const myNetworkInterface: NetworkInterface = {
-        query(request: Request): Promise<GraphQLResult> {
-          assert.equal(print(request.query), print(composedQuery));
-          return Promise.resolve(composedResult);
-        },
-      };
-      const mergingNetworkInterface = addQueryMerging(myNetworkInterface);
-      mergingNetworkInterface.batchQuery([request1, request2]).then((results) => {
-        assert.equal(results.length, 2);
-        assert.deepEqual(results[0], result1);
-        assert.deepEqual(results[1], result2);
-        done();
+      return unauthorizedInterface.query(doomedToFail).catch(err => {
+        assert.isOk(err.response);
+        assert.equal(err.response.status, 403);
+        assert.equal(err.message, 'Network request failed with status 403 - "Forbidden"');
       });
     });
 
-    it('should not merge queries when batchQuery is passed a single query', () => {
-      const query = gql`
-        query {
-          author {
-            firstName
-            lastName
-          }
-        }`;
-      const data = {
-        author: {
-          firstName: 'John',
-          lastName: 'Smith',
-        },
-      };
-      const request = { query: query };
-      const myNetworkInterface: NetworkInterface = {
-        query(requestReceived: Request): Promise<GraphQLResult> {
-          assert.equal(print(requestReceived.query), print(query));
-          return Promise.resolve({ data });
-        },
-      };
-      const mergingNetworkInterface = addQueryMerging(myNetworkInterface);
-      mergingNetworkInterface.batchQuery([request]).then((results) => {
-        assert.equal(results.length[0], 1);
-        assert.deepEqual(results[0], { data });
+    it('should throw an error with the response when service is unavailable', () => {
+      const unauthorizedInterface = createNetworkInterface({ uri: serviceUnavailableUrl });
+
+      return unauthorizedInterface.query(doomedToFail).catch(err => {
+        assert.isOk(err.response);
+        assert.equal(err.response.status, 503);
+        assert.equal(err.message, 'Network request failed with status 503 - "Service Unavailable"');
       });
     });
   });
@@ -441,19 +488,41 @@ describe('network interface', () => {
 // simulate middleware by altering variables and options
 function TestWare(
   variables: Array<{ key: string, val: any }> = [],
-  options: Array<{ key: string, val: any }> = []
+  options: Array<{ key: string, val: any }> = [],
+  bodyParams: Array<{ key: string, val: any }> = [],
 ) {
 
-  this.applyMiddleware = (request: MiddlewareRequest, next: Function): void => {
-    variables.map((variable) => {
-      request.request.variables[variable.key] = variable.val;
-    });
+  return {
+    applyMiddleware: (request: MiddlewareRequest, next: Function): void => {
+      variables.map((variable) => {
+        (<any>request.request.variables)[variable.key] = variable.val;
+      });
 
-    options.map((variable) => {
-      request.options[variable.key] = variable.val;
-    });
+      options.map((variable) => {
+        (<any>request.options)[variable.key] = variable.val;
+      });
 
-    next();
+      bodyParams.map((param) => {
+        request.request[param.key as string] = param.val;
+      });
+
+      next();
+    },
   };
+};
 
-}
+// simulate afterware by altering variables and options
+function TestAfterWare(
+  options: Array<{ key: string, val: any }> = [],
+) {
+
+  return {
+    applyAfterware: (response: AfterwareResponse, next: Function): void => {
+      options.map((variable) => {
+        (<any>response.options)[variable.key] = variable.val;
+      });
+
+      next();
+    },
+  };
+};

@@ -1,12 +1,11 @@
 import {
-  addTypenameToSelectionSet,
-  addTypenameToQuery,
-  applyTransformerToOperation,
+  addTypenameToDocument,
 } from '../src/queries/queryTransform';
+
 import {
   getQueryDefinition,
-  getMutationDefinition,
 } from '../src/queries/getFromAST';
+
 import { print } from 'graphql-tag/printer';
 import gql from 'graphql-tag';
 import { assert } from 'chai';
@@ -23,13 +22,9 @@ describe('query transforms', () => {
         }
       }
     `;
-    const queryDef = getQueryDefinition(testQuery);
-    const queryRes = addTypenameToSelectionSet(queryDef.selectionSet);
+    const newQueryDoc = addTypenameToDocument(testQuery);
 
-    // GraphQL print the parsed, updated query and replace the trailing
-    // newlines.
-    const modifiedQueryStr = print(queryRes);
-    const expectedQuery = getQueryDefinition(gql`
+    const expectedQuery = gql`
       query {
         author {
           name {
@@ -39,12 +34,11 @@ describe('query transforms', () => {
           }
           __typename
         }
-        __typename
       }
-    `);
+    `;
     const expectedQueryStr = print(expectedQuery);
 
-    assert.equal(expectedQueryStr, modifiedQueryStr);
+    assert.equal(expectedQueryStr, print(newQueryDoc));
   });
 
   it('should not add duplicates', () => {
@@ -59,13 +53,9 @@ describe('query transforms', () => {
         }
       }
     `;
-    const queryDef = getQueryDefinition(testQuery);
-    const queryRes = addTypenameToSelectionSet(queryDef.selectionSet);
+    const newQueryDoc = addTypenameToDocument(testQuery);
 
-    // GraphQL print the parsed, updated query and replace the trailing
-    // newlines.
-    const modifiedQueryStr = print(queryRes);
-    const expectedQuery = getQueryDefinition(gql`
+    const expectedQuery = gql`
       query {
         author {
           name {
@@ -75,54 +65,22 @@ describe('query transforms', () => {
           }
           __typename
         }
-        __typename
       }
-    `);
+    `;
     const expectedQueryStr = print(expectedQuery);
 
-    assert.equal(expectedQueryStr, modifiedQueryStr);
-  });
-
-  it('should correctly alter a query from the root', () => {
-    const testQuery = gql`
-      query {
-        testString
-      }`;
-    const expectedQuery = getQueryDefinition(gql`
-      query {
-        testString
-        __typename
-      }`);
-    const modifiedQuery = addTypenameToQuery(getQueryDefinition(testQuery));
-    const modifiedQueryStr = print(modifiedQuery);
-    const expectedQueryStr = print(expectedQuery);
-    assert.equal(expectedQueryStr, modifiedQueryStr);
-  });
-
-  it('should not alter the original query AST', () => {
-    const testQuery = gql`
-      query {
-        user {
-          firstName
-          lastName
-        }
-      }`;
-    const expectedQueryStr = print(testQuery);
-    addTypenameToQuery(getQueryDefinition(testQuery));
-
-    //make sure that producing the modified query has not changed the original query
-    assert.equal(expectedQueryStr, print(testQuery));
+    assert.equal(expectedQueryStr, print(newQueryDoc));
   });
 
   it('should not screw up on a FragmentSpread within the query AST', () => {
-    const testQuery = getQueryDefinition(gql`
+    const testQuery = gql`
     query withFragments {
       user(id: 4) {
         friends(first: 10) {
           ...friendFields
         }
       }
-    }`);
+    }`;
     const expectedQuery = getQueryDefinition(gql`
     query withFragments {
       user(id: 4) {
@@ -132,20 +90,55 @@ describe('query transforms', () => {
         }
         __typename
       }
+    }
+    `);
+    const modifiedQuery = addTypenameToDocument(testQuery);
+    assert.equal(print(expectedQuery), print(getQueryDefinition(modifiedQuery)));
+  });
+
+  it('should modify all definitions in a document', () => {
+    const testQuery = gql`
+    query withFragments {
+      user(id: 4) {
+        friends(first: 10) {
+          ...friendFields
+        }
+      }
+    }
+    fragment friendFields on User {
+      firstName
+      lastName
+    }`;
+
+    const newQueryDoc = addTypenameToDocument(testQuery);
+
+    const expectedQuery = gql`
+    query withFragments {
+      user(id: 4) {
+        friends(first: 10) {
+          ...friendFields
+          __typename
+        }
+        __typename
+      }
+    }
+    fragment friendFields on User {
+      firstName
+      lastName
       __typename
-    }`);
-    const modifiedQuery = addTypenameToQuery(testQuery);
-    assert.equal(print(expectedQuery), print(modifiedQuery));
+    }`;
+
+    assert.equal(print(expectedQuery), print(newQueryDoc));
   });
 
   it('should be able to apply a QueryTransformer correctly', () => {
-    const testQuery = getQueryDefinition(gql`
+    const testQuery = gql`
     query {
       author {
         firstName
         lastName
       }
-    }`);
+    }`;
 
     const expectedQuery = getQueryDefinition(gql`
     query {
@@ -154,38 +147,37 @@ describe('query transforms', () => {
         lastName
         __typename
       }
-      __typename
     }
     `);
 
-    const modifiedQuery = applyTransformerToOperation(testQuery, addTypenameToSelectionSet);
-    assert.equal(print(expectedQuery), print(modifiedQuery));
+    const modifiedQuery = addTypenameToDocument(testQuery);
+    assert.equal(print(expectedQuery), print(getQueryDefinition(modifiedQuery)));
   });
 
   it('should be able to apply a MutationTransformer correctly', () => {
-    const testQuery = getMutationDefinition(gql`
+    const testQuery = gql`
       mutation {
         createAuthor(firstName: "John", lastName: "Smith") {
           firstName
           lastName
         }
-      }`);
-    const expectedQuery = getMutationDefinition(gql`
+      }`;
+    const expectedQuery = gql`
       mutation {
         createAuthor(firstName: "John", lastName: "Smith") {
           firstName
           lastName
           __typename
         }
-        __typename
-      }`);
-    const modifiedQuery = applyTransformerToOperation(testQuery, addTypenameToSelectionSet);
+      }`;
+
+    const modifiedQuery = addTypenameToDocument(testQuery);
     assert.equal(print(expectedQuery), print(modifiedQuery));
 
   });
 
   it('should add typename fields correctly on this one query' , () => {
-    const testQuery = getQueryDefinition(gql`
+    const testQuery = gql`
         query Feed($type: FeedType!) {
           # Eventually move this into a no fetch query right on the entry
           # since we literally just need this info to determine whether to
@@ -216,7 +208,7 @@ describe('query transforms', () => {
               }
             }
           }
-        }`);
+        }`;
     const expectedQuery = getQueryDefinition(gql`
       query Feed($type: FeedType!) {
           currentUser {
@@ -250,9 +242,8 @@ describe('query transforms', () => {
             }
             __typename
           }
-          __typename
         }`);
-    const modifiedQuery = applyTransformerToOperation(testQuery, addTypenameToSelectionSet);
-    assert.equal(print(expectedQuery), print(modifiedQuery));
+    const modifiedQuery = addTypenameToDocument(testQuery);
+    assert.equal(print(expectedQuery), print(getQueryDefinition(modifiedQuery)));
   });
 });

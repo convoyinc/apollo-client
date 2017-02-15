@@ -1,75 +1,79 @@
 import {
-  Field,
-  IntValue,
-  FloatValue,
-  StringValue,
-  BooleanValue,
-  ObjectValue,
-  ListValue,
-  Variable,
-  InlineFragment,
-  Value,
-  Selection,
-  GraphQLResult,
-  Name,
+  FieldNode,
+  IntValueNode,
+  FloatValueNode,
+  StringValueNode,
+  BooleanValueNode,
+  ObjectValueNode,
+  ListValueNode,
+  EnumValueNode,
+  VariableNode,
+  InlineFragmentNode,
+  ValueNode,
+  SelectionNode,
+  ExecutionResult,
+  NameNode,
 } from 'graphql';
 
-import includes = require('lodash.includes');
-
-type ScalarValue = StringValue | BooleanValue;
-
-function isScalarValue(value: Value): value is ScalarValue {
-  const SCALAR_TYPES = ['StringValue', 'BooleanValue'];
-  return includes(SCALAR_TYPES, value.kind);
+function isStringValue(value: ValueNode): value is StringValueNode {
+  return value.kind === 'StringValue';
 }
 
-type NumberValue = IntValue | FloatValue;
-
-function isNumberValue(value: Value): value is NumberValue {
-  const NUMBER_TYPES = ['IntValue', 'FloatValue'];
-  return includes(NUMBER_TYPES, value.kind);
+function isBooleanValue(value: ValueNode): value is BooleanValueNode {
+  return value.kind === 'BooleanValue';
 }
 
-function isVariable(value: Value): value is Variable {
+function isIntValue(value: ValueNode): value is IntValueNode {
+  return value.kind === 'IntValue';
+}
+
+function isFloatValue(value: ValueNode): value is FloatValueNode {
+  return value.kind === 'FloatValue';
+}
+
+function isVariable(value: ValueNode): value is VariableNode {
   return value.kind === 'Variable';
 }
 
-function isObject(value: Value): value is ObjectValue {
+function isObjectValue(value: ValueNode): value is ObjectValueNode {
   return value.kind === 'ObjectValue';
 }
 
-function isList(value: Value): value is ListValue {
+function isListValue(value: ValueNode): value is ListValueNode {
   return value.kind === 'ListValue';
 }
 
-function valueToObjectRepresentation(argObj: Object, name: Name, value: Value, variables?: Object) {
-  if (isNumberValue(value)) {
+function isEnumValue(value: ValueNode): value is EnumValueNode {
+  return value.kind === 'EnumValue';
+}
+
+function valueToObjectRepresentation(argObj: any, name: NameNode, value: ValueNode, variables?: Object) {
+  if (isIntValue(value) || isFloatValue(value)) {
     argObj[name.value] = Number(value.value);
-  } else if (isScalarValue(value)) {
+  } else if (isBooleanValue(value) || isStringValue(value)) {
     argObj[name.value] = value.value;
-  } else if (isObject(value)) {
+  } else if (isObjectValue(value)) {
     const nestedArgObj = {};
     value.fields.map((obj) => valueToObjectRepresentation(nestedArgObj, obj.name, obj.value, variables));
     argObj[name.value] = nestedArgObj;
   } else if (isVariable(value)) {
-    if (! variables || !(value.name.value in variables)) {
-      throw new Error(`The inline argument "${value.name.value}" is expected as a variable but was not provided.`);
-    }
-    const variableValue = variables[value.name.value];
+    const variableValue = (variables || {} as any)[value.name.value];
     argObj[name.value] = variableValue;
-  } else if (isList(value)) {
+  } else if (isListValue(value)) {
     argObj[name.value] = value.values.map((listValue) => {
       const nestedArgArrayObj = {};
       valueToObjectRepresentation(nestedArgArrayObj, name, listValue, variables);
-      return nestedArgArrayObj[name.value];
+      return (nestedArgArrayObj as any)[name.value];
     });
+  } else if (isEnumValue(value)) {
+    argObj[name.value] = (value as EnumValueNode).value;
   } else {
-    throw new Error(`The inline argument "${name.value}" of kind "${value.kind}" is not supported.
+    throw new Error(`The inline argument "${name.value}" of kind "${(value as any).kind}" is not supported.
                     Use variables instead of inline arguments to overcome this limitation.`);
   }
 }
 
-export function storeKeyNameFromField(field: Field, variables?: Object): string {
+export function storeKeyNameFromField(field: FieldNode, variables?: Object): string {
   if (field.arguments && field.arguments.length) {
     const argObj: Object = {};
 
@@ -83,25 +87,79 @@ export function storeKeyNameFromField(field: Field, variables?: Object): string 
 }
 
 export function storeKeyNameFromFieldNameAndArgs(fieldName: string, args?: Object): string {
-  const stringifiedArgs: string = JSON.stringify(args);
+  if (args) {
+    const stringifiedArgs: string = JSON.stringify(args);
 
-  return `${fieldName}(${stringifiedArgs})`;
+    return `${fieldName}(${stringifiedArgs})`;
+  }
+
+  return fieldName;
 }
 
-export function resultKeyNameFromField(field: Field): string {
+export function resultKeyNameFromField(field: FieldNode): string {
   return field.alias ?
     field.alias.value :
     field.name.value;
 }
 
-export function isField(selection: Selection): selection is Field {
+export function isField(selection: SelectionNode): selection is FieldNode {
   return selection.kind === 'Field';
 }
 
-export function isInlineFragment(selection: Selection): selection is InlineFragment {
+export function isInlineFragment(selection: SelectionNode): selection is InlineFragmentNode {
   return selection.kind === 'InlineFragment';
 }
 
-export function graphQLResultHasError(result: GraphQLResult) {
+export function graphQLResultHasError(result: ExecutionResult) {
   return result.errors && result.errors.length;
+}
+
+/**
+ * This is a normalized representation of the Apollo query result cache. Briefly, it consists of
+ * a flatten representation of query result trees.
+ */
+export interface NormalizedCache {
+  [dataId: string]: StoreObject;
+}
+
+export interface StoreObject {
+  __typename?: string;
+  [storeFieldKey: string]: StoreValue;
+}
+
+export interface IdValue {
+  type: 'id';
+  id: string;
+  generated: boolean;
+}
+
+export interface JsonValue {
+  type: 'json';
+  json: any;
+}
+
+export type StoreValue = number | string | string[] | IdValue | JsonValue | null | undefined | void;
+
+export function isIdValue(idObject: StoreValue): idObject is IdValue {
+  return (
+    idObject != null &&
+    typeof idObject === 'object' &&
+    (idObject as (IdValue | JsonValue)).type === 'id'
+  );
+}
+
+export function toIdValue(id: string, generated = false): IdValue {
+  return {
+    type: 'id',
+    id,
+    generated,
+  };
+}
+
+export function isJsonValue(jsonObject: StoreValue): jsonObject is JsonValue {
+  return (
+    jsonObject != null &&
+    typeof jsonObject === 'object' &&
+    (jsonObject as (IdValue | JsonValue)).type === 'json'
+  );
 }

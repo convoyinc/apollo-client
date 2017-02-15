@@ -18,7 +18,7 @@ const initialState = [
   },
 ];
 
-function todos(state = initialState, action): any {
+function todos(state = initialState, action: any): any {
   switch (action.type) {
     case ADD_TODO:
       return [
@@ -65,7 +65,7 @@ function todos(state = initialState, action): any {
 
 const rootReducer = combineReducers({
   todos
-});
+}) as any; // XXX see why this type fails
 
 export {
   rootReducer

@@ -1,42 +1,40 @@
 import { assert } from 'chai';
-import * as _ from 'lodash';
+import { assign, omit } from 'lodash';
 
 import {
-  readFragmentFromStore,
+  readQueryFromStore,
 } from '../src/data/readFromStore';
 
 import {
   NormalizedCache,
   StoreObject,
-} from '../src/data/store';
+} from '../src/data/storeUtils';
 
 import gql from 'graphql-tag';
 
 describe('reading from the store', () => {
   it('rejects malformed queries', () => {
     assert.throws(() => {
-      readFragmentFromStore({
+      readQueryFromStore({
         store: {},
-        fragment: gql`
-          fragment X on Y { name }
-          fragment W on Y { address }
+        query: gql`
+          query { name }
+          query { address }
         `,
-        rootId: 'asdf',
       });
-    }, /exactly one definition/);
+    }, /exactly one/);
 
     assert.throws(() => {
-      readFragmentFromStore({
+      readQueryFromStore({
         store: {},
-        fragment: gql`
-          { name }
+        query: gql`
+          fragment x on y { name }
         `,
-        rootId: 'asdf',
       });
-    }, /be a fragment/);
+    }, /contain a query/);
   });
 
-  it('runs a basic fragment', () => {
+  it('runs a basic query', () => {
     const result = {
       id: 'abcd',
       stringField: 'This is a string!',
@@ -45,18 +43,17 @@ describe('reading from the store', () => {
     } as StoreObject;
 
     const store = {
-      abcd: result,
+      'ROOT_QUERY': result,
     } as NormalizedCache;
 
-    const queryResult = readFragmentFromStore({
+    const queryResult = readQueryFromStore({
       store,
-      fragment: gql`
-        fragment FragmentName on Item {
+      query: gql`
+        query {
           stringField,
           numberField
         }
       `,
-      rootId: 'abcd',
     });
 
     // The result of the query shouldn't contain __data_id fields
@@ -66,9 +63,9 @@ describe('reading from the store', () => {
     });
   });
 
-  it('runs a basic fragment with arguments', () => {
-    const fragment = gql`
-      fragment Item on ItemType {
+  it('runs a basic query with arguments', () => {
+    const query = gql`
+      query {
         id,
         stringField(arg: $stringArg),
         numberField(intArg: $intArg, floatArg: $floatArg),
@@ -83,7 +80,7 @@ describe('reading from the store', () => {
     };
 
     const store = {
-      abcd: {
+      'ROOT_QUERY': {
         id: 'abcd',
         nullField: null,
         'numberField({"intArg":5,"floatArg":3.14})': 5,
@@ -91,11 +88,10 @@ describe('reading from the store', () => {
       },
     } as NormalizedCache;
 
-    const result = readFragmentFromStore({
+    const result = readQueryFromStore({
       store,
-      fragment,
+      query,
       variables,
-      rootId: 'abcd',
     });
 
     assert.deepEqual(result, {
@@ -106,8 +102,8 @@ describe('reading from the store', () => {
     });
   });
 
-  it('runs a nested fragment', () => {
-    const result = {
+  it('runs a nested query', () => {
+    const result: any = {
       id: 'abcd',
       stringField: 'This is a string!',
       numberField: 5,
@@ -121,14 +117,20 @@ describe('reading from the store', () => {
     };
 
     const store = {
-      abcd: _.assign({}, _.assign({}, _.omit(result, 'nestedObj')), { nestedObj: 'abcde' }) as StoreObject,
+      'ROOT_QUERY': assign({}, assign({}, omit(result, 'nestedObj')), {
+        nestedObj: {
+          type: 'id',
+          id: 'abcde',
+          generated: false,
+        },
+      }) as StoreObject,
       abcde: result.nestedObj,
     } as NormalizedCache;
 
-    const queryResult = readFragmentFromStore({
+    const queryResult = readQueryFromStore({
       store,
-      fragment: gql`
-        fragment FragmentName on Item {
+      query: gql`
+        {
           stringField,
           numberField,
           nestedObj {
@@ -137,7 +139,6 @@ describe('reading from the store', () => {
           }
         }
       `,
-      rootId: 'abcd',
     });
 
     // The result of the query shouldn't contain __data_id fields
@@ -151,8 +152,101 @@ describe('reading from the store', () => {
     });
   });
 
-  it('runs a nested fragment with an array without IDs', () => {
-    const result = {
+  it('runs a nested query with multiple fragments', () => {
+    const result: any = {
+      id: 'abcd',
+      stringField: 'This is a string!',
+      numberField: 5,
+      nullField: null,
+      nestedObj: {
+        id: 'abcde',
+        stringField: 'This is a string too!',
+        numberField: 6,
+        nullField: null,
+      } as StoreObject,
+      deepNestedObj: {
+        stringField: 'This is a deep string',
+        numberField: 7,
+        nullField: null,
+      } as StoreObject,
+      nullObject: null,
+      __typename: 'Item',
+    };
+
+    const store = {
+      'ROOT_QUERY': assign({}, assign({}, omit(result, 'nestedObj', 'deepNestedObj')), {
+        __typename: 'Query',
+        nestedObj: {
+          type: 'id',
+          id: 'abcde',
+          generated: false,
+        },
+      }) as StoreObject,
+      abcde: assign({}, result.nestedObj, {
+        deepNestedObj: {
+          type: 'id',
+          id: 'abcdef',
+          generated: false,
+        },
+      }) as StoreObject,
+      abcdef: result.deepNestedObj as StoreObject,
+    } as NormalizedCache;
+
+    const queryResult = readQueryFromStore({
+      store,
+      query: gql`
+        {
+          stringField,
+          numberField,
+          nullField,
+          ... on Query {
+            nestedObj {
+              stringField
+              nullField
+              deepNestedObj {
+                stringField
+                nullField
+              }
+            }
+          }
+          ... on Query {
+            nestedObj {
+              numberField
+              nullField
+              deepNestedObj {
+                numberField
+                nullField
+              }
+            }
+          }
+          ... on Query {
+            nullObject
+          }
+        }
+      `,
+    });
+
+    // The result of the query shouldn't contain __data_id fields
+    assert.deepEqual(queryResult, {
+      stringField: 'This is a string!',
+      numberField: 5,
+      nullField: null,
+      nestedObj: {
+        stringField: 'This is a string too!',
+        numberField: 6,
+        nullField: null,
+        deepNestedObj: {
+          stringField: 'This is a deep string',
+          numberField: 7,
+          nullField: null,
+        },
+      },
+      nullObject: null,
+    });
+  });
+
+  it('runs a nested query with an array without IDs', () => {
+    const result: any = {
       id: 'abcd',
       stringField: 'This is a string!',
       numberField: 5,
@@ -172,20 +266,20 @@ describe('reading from the store', () => {
     };
 
     const store = {
-      abcd: _.assign({}, _.assign({}, _.omit(result, 'nestedArray')), {
+      'ROOT_QUERY': assign({}, assign({}, omit(result, 'nestedArray')), {
         nestedArray: [
-          'abcd.nestedArray.0',
-          'abcd.nestedArray.1',
+          { type: 'id', generated: true, id: 'abcd.nestedArray.0' },
+          { type: 'id', generated: true, id: 'abcd.nestedArray.1' },
         ],
       }) as StoreObject,
       'abcd.nestedArray.0': result.nestedArray[0],
       'abcd.nestedArray.1': result.nestedArray[1],
     } as NormalizedCache;
 
-    const queryResult = readFragmentFromStore({
+    const queryResult = readQueryFromStore({
       store,
-      fragment: gql`
-        fragment FragmentName on Item {
+      query: gql`
+        {
           stringField,
           numberField,
           nestedArray {
@@ -194,7 +288,6 @@ describe('reading from the store', () => {
           }
         }
       `,
-      rootId: 'abcd',
     });
 
     // The result of the query shouldn't contain __data_id fields
@@ -214,8 +307,8 @@ describe('reading from the store', () => {
     });
   });
 
-  it('runs a nested fragment with an array without IDs and a null', () => {
-    const result = {
+  it('runs a nested query with an array without IDs and a null', () => {
+    const result: any = {
       id: 'abcd',
       stringField: 'This is a string!',
       numberField: 5,
@@ -231,19 +324,19 @@ describe('reading from the store', () => {
     };
 
     const store = {
-      abcd: _.assign({}, _.assign({}, _.omit(result, 'nestedArray')), {
+      'ROOT_QUERY': assign({}, assign({}, omit(result, 'nestedArray')), {
         nestedArray: [
           null,
-          'abcd.nestedArray.1',
+          { type: 'id', generated: true, id: 'abcd.nestedArray.1' },
         ],
       }) as StoreObject,
       'abcd.nestedArray.1': result.nestedArray[1],
     } as NormalizedCache;
 
-    const queryResult = readFragmentFromStore({
+    const queryResult = readQueryFromStore({
       store,
-      fragment: gql`
-        fragment FragmentName on Item {
+      query: gql`
+        {
           stringField,
           numberField,
           nestedArray {
@@ -252,7 +345,6 @@ describe('reading from the store', () => {
           }
         }
       `,
-      rootId: 'abcd',
     });
 
     // The result of the query shouldn't contain __data_id fields
@@ -269,8 +361,8 @@ describe('reading from the store', () => {
     });
   });
 
-  it('runs a nested fragment with an array with IDs and a null', () => {
-    const result = {
+  it('runs a nested query with an array with IDs and a null', () => {
+    const result: any = {
       id: 'abcd',
       stringField: 'This is a string!',
       numberField: 5,
@@ -287,19 +379,19 @@ describe('reading from the store', () => {
     };
 
     const store = {
-      abcd: _.assign({}, _.assign({}, _.omit(result, 'nestedArray')), {
+      'ROOT_QUERY': assign({}, assign({}, omit(result, 'nestedArray')), {
         nestedArray: [
           null,
-          'abcde',
+          { type: 'id', generated: false, id: 'abcde' },
         ],
       }) as StoreObject,
       'abcde': result.nestedArray[1],
     } as NormalizedCache;
 
-    const queryResult = readFragmentFromStore({
+    const queryResult = readQueryFromStore({
       store,
-      fragment: gql`
-        fragment FragmentName on Item {
+      query: gql`
+        {
           stringField,
           numberField,
           nestedArray {
@@ -309,7 +401,6 @@ describe('reading from the store', () => {
           }
         }
       `,
-      rootId: 'abcd',
     });
 
     // The result of the query shouldn't contain __data_id fields
@@ -335,18 +426,17 @@ describe('reading from the store', () => {
       nullField: null,
     } as StoreObject;
 
-    const store = { abcd: result } as NormalizedCache;
+    const store = { 'ROOT_QUERY': result } as NormalizedCache;
 
     assert.throws(() => {
-      readFragmentFromStore({
+      readQueryFromStore({
         store,
-        fragment: gql`
-          fragment FragmentName on Item {
+        query: gql`
+          {
             stringField,
             missingField
           }
         `,
-        rootId: 'abcd',
       });
     }, /field missingField on object/);
   });
@@ -359,25 +449,24 @@ describe('reading from the store', () => {
       nullField: null,
     } as StoreObject;
 
-    const store = { abcd: result } as NormalizedCache;
+    const store = { 'ROOT_QUERY': result } as NormalizedCache;
 
     assert.doesNotThrow(() => {
-      readFragmentFromStore({
+      readQueryFromStore({
         store,
-        fragment: gql`
-          fragment FragmentName on Item {
+        query: gql`
+          {
             stringField,
             missingField
           }
         `,
-        rootId: 'abcd',
         returnPartialData: true,
       });
     }, /field missingField on object/);
   });
 
-  it('runs a nested fragment where the reference is null', () => {
-    const result = {
+  it('runs a nested query where the reference is null', () => {
+    const result: any = {
       id: 'abcd',
       stringField: 'This is a string!',
       numberField: 5,
@@ -386,13 +475,13 @@ describe('reading from the store', () => {
     };
 
     const store = {
-      abcd: _.assign({}, _.assign({}, _.omit(result, 'nestedObj')), { nestedObj: null }) as StoreObject,
+      'ROOT_QUERY': assign({}, assign({}, omit(result, 'nestedObj')), { nestedObj: null }) as StoreObject,
     } as NormalizedCache;
 
-    const queryResult = readFragmentFromStore({
+    const queryResult = readQueryFromStore({
       store,
-      fragment: gql`
-        fragment FragmentName on Item {
+      query: gql`
+        {
           stringField,
           numberField,
           nestedObj {
@@ -401,7 +490,6 @@ describe('reading from the store', () => {
           }
         }
       `,
-      rootId: 'abcd',
     });
 
     // The result of the query shouldn't contain __data_id fields
@@ -413,7 +501,7 @@ describe('reading from the store', () => {
   });
 
   it('runs an array of non-objects', () => {
-    const result = {
+    const result: any = {
       id: 'abcd',
       stringField: 'This is a string!',
       numberField: 5,
@@ -422,19 +510,21 @@ describe('reading from the store', () => {
     };
 
     const store = {
-      abcd: _.assign({}, _.assign({}, _.omit(result, 'simpleArray')), { simpleArray: result.simpleArray }) as StoreObject,
+      'ROOT_QUERY': assign({}, assign({}, omit(result, 'simpleArray')), { simpleArray: {
+        type: 'json',
+        json: result.simpleArray,
+      }}) as StoreObject,
     } as NormalizedCache;
 
-    const queryResult = readFragmentFromStore({
+    const queryResult = readQueryFromStore({
       store,
-      fragment: gql`
-        fragment FragmentName on Item {
+      query: gql`
+        {
           stringField,
           numberField,
           simpleArray
         }
       `,
-      rootId: 'abcd',
     });
 
     // The result of the query shouldn't contain __data_id fields
@@ -446,7 +536,7 @@ describe('reading from the store', () => {
   });
 
   it('runs an array of non-objects with null', () => {
-    const result = {
+    const result: any = {
       id: 'abcd',
       stringField: 'This is a string!',
       numberField: 5,
@@ -455,19 +545,21 @@ describe('reading from the store', () => {
     };
 
     const store = {
-      abcd: _.assign({}, _.assign({}, _.omit(result, 'simpleArray')), { simpleArray: result.simpleArray }) as StoreObject,
+      'ROOT_QUERY': assign({}, assign({}, omit(result, 'simpleArray')), { simpleArray: {
+        type: 'json',
+        json: result.simpleArray,
+      }}) as StoreObject,
     } as NormalizedCache;
 
-    const queryResult = readFragmentFromStore({
+    const queryResult = readQueryFromStore({
       store,
-      fragment: gql`
-        fragment FragmentName on Item {
+      query: gql`
+        {
           stringField,
           numberField,
           simpleArray
         }
       `,
-      rootId: 'abcd',
     });
 
     // The result of the query shouldn't contain __data_id fields
@@ -475,6 +567,83 @@ describe('reading from the store', () => {
       stringField: 'This is a string!',
       numberField: 5,
       simpleArray: [null, 'two', 'three'],
+    });
+  });
+
+  it('runs a query with custom resolvers for a computed field', () => {
+    const result = {
+      __typename: 'Thing',
+      id: 'abcd',
+      stringField: 'This is a string!',
+      numberField: 5,
+      nullField: null,
+    } as StoreObject;
+
+    const store = {
+      'ROOT_QUERY': result,
+    } as NormalizedCache;
+
+    const queryResult = readQueryFromStore({
+      store,
+      query: gql`
+        query {
+          stringField
+          numberField
+          computedField(extra: "bit") @client
+        }
+      `,
+      config: {
+        customResolvers: {
+          Thing: {
+            computedField: (obj, args) => obj.stringField + obj.numberField + args['extra'],
+          },
+        },
+      },
+    });
+
+    // The result of the query shouldn't contain __data_id fields
+    assert.deepEqual(queryResult, {
+      stringField: result['stringField'],
+      numberField: result['numberField'],
+      computedField: 'This is a string!5bit',
+    });
+  });
+
+  it('runs a query with custom resolvers for a computed field on root Query', () => {
+    const result = {
+      id: 'abcd',
+      stringField: 'This is a string!',
+      numberField: 5,
+      nullField: null,
+    } as StoreObject;
+
+    const store = {
+      'ROOT_QUERY': result,
+    } as NormalizedCache;
+
+    const queryResult = readQueryFromStore({
+      store,
+      query: gql`
+        query {
+          stringField
+          numberField
+          computedField(extra: "bit") @client
+        }
+      `,
+      config: {
+        customResolvers: {
+          Query: {
+            computedField: (obj, args) => obj.stringField + obj.numberField + args['extra'],
+          },
+        },
+      },
+    });
+
+    // The result of the query shouldn't contain __data_id fields
+    assert.deepEqual(queryResult, {
+      stringField: result['stringField'],
+      numberField: result['numberField'],
+      computedField: 'This is a string!5bit',
     });
   });
 });
