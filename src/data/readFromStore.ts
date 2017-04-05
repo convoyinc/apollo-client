@@ -4,6 +4,10 @@ import {
 } from './diffAgainstStore';
 
 import {
+  StoreFetchMiddleware,
+} from './fetchMiddleware';
+
+import {
   SelectionSet,
   Document,
 } from 'graphql';
@@ -28,12 +32,14 @@ export function readQueryFromStore({
   variables,
   returnPartialData,
   fragmentMap,
+  fetchMiddleware,
 }: {
   store: NormalizedCache,
   query: Document,
   variables?: Object,
   returnPartialData?: boolean,
   fragmentMap?: FragmentMap,
+  fetchMiddleware?: StoreFetchMiddleware;
 }): Object {
   const queryDef = getQueryDefinition(query);
 
@@ -41,6 +47,7 @@ export function readQueryFromStore({
     context: {
       store,
       fragmentMap: fragmentMap || {},
+      fetchMiddleware,
     },
     rootId: 'ROOT_QUERY',
     selectionSet: queryDef.selectionSet,
