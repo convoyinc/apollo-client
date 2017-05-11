@@ -77,6 +77,7 @@ export function optimistic(
       extraReducers: action.extraReducers,
       updateQueries: action.updateQueries,
       update: action.update,
+      preventStoreUpdate: action.preventStoreUpdate,
     };
 
     const optimisticData = getDataWithOptimisticResults({
@@ -132,7 +133,7 @@ function getOptimisticDataPatch (
   const patch: any = {
     data: {},
     queryCache: {},
-    invalidatedQueryCacheIds: []
+    invalidatedQueryCacheIds: [],
   };
 
   Object.keys(optimisticData.data).forEach(key => {
@@ -148,7 +149,9 @@ function getOptimisticDataPatch (
   });
 
   Object.keys(previousData.queryCache).forEach(key => {
-    !optimisticData.queryCache[key] && patch.invalidatedQueryCacheIds.push(key);
+    if (!optimisticData.queryCache[key]) {
+      patch.invalidatedQueryCacheIds.push(key);
+    }
   });
 
   return patch;
@@ -171,7 +174,7 @@ function rollbackOptimisticData (
   // Create a shallow copy of the data in the store.
   const optimisticData = {
     data: assign({}, store.cache.data),
-    queryCache: assign({}, store.cache.queryCache)
+    queryCache: assign({}, store.cache.queryCache),
   };
 
   const newState = previousState

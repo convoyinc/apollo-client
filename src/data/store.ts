@@ -39,7 +39,7 @@ import {
   graphQLResultHasError,
   NormalizedCache,
   Cache,
-  QueryCache
+  QueryCache,
 } from './storeUtils';
 
 import {
@@ -181,7 +181,7 @@ export function data(
     if (!constAction.result.errors) {
       const queryStoreValue = mutations[constAction.mutationId];
 
-      let newState = writeResultToStore({
+      let newState = !constAction.preventStoreUpdate ? writeResultToStore({
         result: constAction.result.data,
         dataId: 'ROOT_MUTATION',
         document: constAction.document,
@@ -191,7 +191,7 @@ export function data(
         dataIdFromObject: config.dataIdFromObject,
         fragmentMatcherFunction: config.fragmentMatcher,
         queryCache: previousState.queryCache,
-      });
+      }) : previousState;
 
       // If this action wants us to update certain queries. Let’s do it!
       const { updateQueries } = constAction;
@@ -233,7 +233,8 @@ export function data(
           const nextQueryResult = tryFunctionOrLogError(() => reducer(currentQueryResult, options));
 
           if (nextQueryResult) {
-            // Write the modified result back into the store if we got a new result and the user didn't tell us explicitly not to write it to the store...
+            // Write the modified result back into the store if we got a new result and the user didn't tell us explicitly not to write it
+            // to the store...
             if (options.updateStoreFlag) {
               newState = writeResultToStore({
                 result: nextQueryResult,
@@ -246,8 +247,7 @@ export function data(
                 queryCache: newState.queryCache,
                 queryId,
               });
-            }
-            else {
+            } else {
               // ...otherwise only update the query cache
               modifiedQueryCacheIds[queryId] = true;
 
