@@ -1,8 +1,10 @@
 # Change log
 
 ### vNEXT
+<<<<<<< HEAD
 - Feature: A query cache storing denormalized query results leading to better performance [PR #1673](https://github.com/apollographql/apollo-client/pull/1673)
 - Make ApolloClient.resetStore() and QueryManager.resetStore() return a promise instead of void [PR #1674](https://github.com/apollographql/apollo-client/pull/1674)
+- Fix: Avoiding reprocessing of identical data when writing to the store [PR #1675](https://github.com/apollographql/apollo-client/pull/1675)
 
 ### 1.2.2
 - Fix: Remove race condition in queryListenerFromObserver [PR #1670](https://github.com/apollographql/apollo-client/pull/1670)
