@@ -50,7 +50,7 @@
   "author": "Sashko Stubailo <sashko@stubailo.com>",
   "license": "MIT",
   "dependencies": {
-    "graphql-anywhere": "^3.0.1",
+    "graphql-anywhere": "https://github.com/abergenw/graphql-anywhere/releases/download/merge-nested-objects/graphql-anywhere-3.0.1.tgz",
     "graphql": "^0.9.3",
     "graphql-tag": "^2.0.0",
     "redux": "^3.4.0",
