@@ -512,8 +512,7 @@ describe('client', () => {
         data: initialState.apollo.data,
         queryCache: {
           '1': {
-            dirty: false,
-            modified: false,
+            state: 'fresh',
             variables: {},
             result: data,
             keys: {

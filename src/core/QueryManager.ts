@@ -407,7 +407,7 @@ export class QueryManager {
     if ( (fetchType !== FetchType.refetch && fetchPolicy !== 'network-only')) {
       const cache = this.getApolloState().cache;
 
-      const { isMissing, result, wasCached, queryCacheKeys } = diffQueryAgainstStore({
+      const { isMissing, result, wasCached, wasDirty, queryCacheKeys } = diffQueryAgainstStore({
         query: queryDoc,
         store: cache.data,
         variables,
@@ -419,7 +419,7 @@ export class QueryManager {
       });
 
       // If we're in here, only fetch if we have missing fields
-      needToFetch = isMissing || fetchPolicy === 'cache-and-network';
+      needToFetch = isMissing || (wasCached && wasDirty) || fetchPolicy === 'cache-and-network';
 
       storeResult = result;
 
@@ -589,7 +589,6 @@ export class QueryManager {
               previousResult: lastResult && lastResult.data,
               queryCache: cache.queryCache,
               queryId,
-              allowModifiedQueryCache: true,
             });
 
             // Update query cache if not found but only if we are operating on real data and not optimistic
@@ -992,7 +991,6 @@ export class QueryManager {
       fragmentMatcherFunction: this.fragmentMatcher.match,
       queryCache: cache.queryCache,
       queryId: observableQuery.queryId,
-      allowModifiedQueryCache: true,
     };
 
     try {

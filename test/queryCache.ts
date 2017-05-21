@@ -106,8 +106,7 @@ describe('query cache', () => {
           data: initialState.apollo.data,
           queryCache: {
             '1': {
-              dirty: false,
-              modified: false,
+              state: 'fresh',
               result: data.data,
               variables: {},
               keys: {
@@ -142,8 +141,7 @@ describe('query cache', () => {
           data: initialState.apollo.data,
           queryCache: {
             '1': {
-              dirty: false,
-              modified: false,
+              state: 'fresh',
               result: data.data,
               variables: {},
               keys: {
@@ -178,6 +176,9 @@ describe('query cache', () => {
       }, {
         request: {query: mutation},
         result: mutationResult,
+      }, {
+        request: {query},
+        result: data,
       });
 
       return new ApolloClient({
@@ -187,7 +188,7 @@ describe('query cache', () => {
       });
     };
 
-    it('is dirty with update store flag true', done => {
+    it('is fresh with updateStoreFlag true', done => {
       const expectedData = cloneDeep(initialState.apollo.data);
       expectedData['ROOT_MUTATION'] = {id: 'dummy'};
       expectedData['account1'].name = 'Account 1 (updated)';
@@ -199,8 +200,7 @@ describe('query cache', () => {
         data: expectedData,
         queryCache: {
           '1': {
-            dirty: true,
-            modified: false,
+            state: 'fresh',
             result: expectedResult,
             variables: {},
             keys: {
@@ -236,7 +236,6 @@ describe('query cache', () => {
               });
               break;
             case 1:
-              expectedCache.queryCache['1'].dirty = false;
               assert.deepEqual(client.store.getState().apollo.cache, expectedCache);
               done();
               break;
@@ -247,7 +246,7 @@ describe('query cache', () => {
       });
     });
 
-    it('is not dirty and modified with update store flag false', done => {
+    it('is dirty with updateStoreFlag false and refetched after waking from standby', done => {
       const expectedData = cloneDeep(initialState.apollo.data);
       expectedData['ROOT_MUTATION'] = {id: 'dummy'};
 
@@ -258,8 +257,7 @@ describe('query cache', () => {
         data: expectedData,
         queryCache: {
           '1': {
-            dirty: false,
-            modified: true,
+            state: 'dirty',
             result: expectedResult,
             variables: {},
             keys: {
@@ -275,7 +273,8 @@ describe('query cache', () => {
       const client = setupClient();
 
       let c = 0;
-      client.watchQuery({ query }).subscribe({
+      const observable = client.watchQuery({ query });
+      observable.subscribe({
         next: (result: any) => {
           switch (c++) {
             case 0:
@@ -298,6 +297,20 @@ describe('query cache', () => {
               });
               break;
             case 1:
+              assert.deepEqual(client.store.getState().apollo.cache, expectedCache);
+
+              observable.setOptions({
+                fetchPolicy: 'standby',
+              });
+
+              observable.setOptions({
+                fetchPolicy: 'cache-first',
+              });
+              break;
+            case 2:
+              expectedCache = cloneDeep(expectedCache);
+              expectedCache.queryCache['1'].state = 'fresh';
+              expectedCache.queryCache['1'].result.node.name = data.data.node.name;
               assert.deepEqual(client.store.getState().apollo.cache, expectedCache);
               done();
               break;
