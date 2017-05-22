@@ -79,6 +79,7 @@ import {
 
 import {
   toIdValue,
+  QueryCacheState,
 } from './data/storeUtils';
 
 import {
@@ -103,6 +104,7 @@ export {
   Request,
   ApolloQueryResult,
   toIdValue,
+  QueryCacheState,
 
   IntrospectionFragmentMatcher,
   FragmentMatcherInterface,
