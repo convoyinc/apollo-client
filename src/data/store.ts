@@ -37,9 +37,7 @@ import {
 
 import {
   graphQLResultHasError,
-  NormalizedCache,
   Cache,
-  QueryCache,
 } from './storeUtils';
 
 import {
@@ -124,7 +122,7 @@ export function data(
       variables: action.variables,
       store: previousState.data,
       queryCache: previousState.queryCache,
-      queryCacheKeys: action.queryCacheKeys,
+      keys: action.queryCacheKeys,
     });
 
     return compareState(previousState, newState);
@@ -135,7 +133,7 @@ export function data(
       variables: action.variables,
       store: previousState.data,
       queryCache: previousState.queryCache,
-      queryCacheKeys: action.queryCacheKeys,
+      keys: action.queryCacheKeys,
     });
 
     return compareState(previousState, newState);
@@ -195,7 +193,6 @@ export function data(
 
       // If this action wants us to update certain queries. Let’s do it!
       const { updateQueries } = constAction;
-      const modifiedQueryCacheIds: { [x: string]: any } = {};
 
       if (updateQueries) {
         Object.keys(updateQueries).forEach(queryId => {
@@ -214,7 +211,6 @@ export function data(
             config,
             queryCache: previousState.queryCache,
             queryId,
-            allowModifiedQueryCache: true,
           });
 
           if (isMissing) {
@@ -228,14 +224,14 @@ export function data(
             queryName: getOperationName(query.document),
             queryVariables: query.variables,
             updateStoreFlag: true,
+            forceQueryCacheState: null as any,
           };
 
           // Run our reducer using the current query result and the mutation result.
           const nextQueryResult = tryFunctionOrLogError(() => reducer(currentQueryResult, options));
 
           if (nextQueryResult) {
-            // Write the modified result back into the store if we got a new result and the user didn't tell us explicitly not to write it
-            // to the store...
+            // Write the modified result back into the unless the user told us explicitly not to...
             if (options.updateStoreFlag) {
               newState = writeResultToStore({
                 result: nextQueryResult,
@@ -248,18 +244,28 @@ export function data(
                 queryCache: newState.queryCache,
                 queryId,
               });
+
+              if (options.forceQueryCacheState != null) {
+                newState = insertQueryIntoCache({
+                  queryId,
+                  result: nextQueryResult,
+                  variables: query.variables,
+                  store: newState.data,
+                  queryCache: newState.queryCache,
+                  keys: newState.queryCache[queryId].keys,
+                  state: options.forceQueryCacheState,
+                });
+              }
             } else {
               // ...otherwise only update the query cache
-              modifiedQueryCacheIds[queryId] = true;
-
               newState = insertQueryIntoCache({
                 queryId,
                 result: nextQueryResult,
                 variables: query.variables,
                 store: newState.data,
                 queryCache: newState.queryCache,
-                queryCacheKeys: newState.queryCache[queryId].keys,
-                modified: true,
+                keys: newState.queryCache[queryId].keys,
+                state: options.forceQueryCacheState || 'dirty',
               });
             }
           }
@@ -284,11 +290,6 @@ export function data(
           mutations,
           config,
         );
-
-        // Revert dirty marking of any cached query results that were modified by updateQueries
-        Object.keys(modifiedQueryCacheIds).forEach(queryId => {
-          newState.queryCache[queryId].dirty = false;
-        });
       }
 
       // XXX each reducer gets the state from the previous reducer.

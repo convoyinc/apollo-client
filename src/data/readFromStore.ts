@@ -60,7 +60,7 @@ export type DiffResult = {
   result?: any;
   isMissing?: boolean;
   wasCached?: boolean;
-  wasModified?: boolean;
+  wasDirty?: boolean;
   queryCacheKeys?: { [id: string]: any };
 };
 
@@ -75,7 +75,6 @@ export type ReadQueryOptions = {
   queryCache?: QueryCache,
   queryId?: string,
   returnOnlyQueryCacheData?: boolean,
-  allowModifiedQueryCache?: boolean,
 };
 
 export type DiffQueryAgainstStoreOptions = ReadQueryOptions & {
@@ -236,7 +235,6 @@ function getReadStoreResolverWithQueryCacheKeys(queryCacheKeys: { [id: string]: 
  * @param config
  * @param queryCache
  * @param queryId
- * @param allowModifiedQueryCache
  * @param returnOnlyQueryCacheData
  */
 export function diffQueryAgainstStore({
@@ -250,7 +248,6 @@ export function diffQueryAgainstStore({
   config,
   queryCache,
   queryId,
-  allowModifiedQueryCache,
   returnOnlyQueryCacheData = false,
 }: DiffQueryAgainstStoreOptions): DiffResult {
   // Throw the right validation error by trying to find a query in the document
@@ -259,13 +256,13 @@ export function diffQueryAgainstStore({
   variables = assign({}, getDefaultValues(queryDefinition), variables);
 
   if (queryId && queryCache) {
-    const {result, modified} = readQueryFromCache({ queryId, queryCache, variables, allowModified: allowModifiedQueryCache });
+    const {result, dirty} = readQueryFromCache({ queryId, queryCache, variables });
     if (result) {
       return {
         result: result,
         isMissing: false,
         wasCached: true,
-        wasModified: modified,
+        wasDirty: dirty,
       };
     }
   }
@@ -275,6 +272,7 @@ export function diffQueryAgainstStore({
       result: null,
       isMissing: true,
       wasCached: false,
+      wasDirty: false,
     };
   }
 
@@ -304,6 +302,7 @@ export function diffQueryAgainstStore({
     result,
     isMissing: context.hasMissingField,
     wasCached: false,
+    wasDirty: false,
     queryCacheKeys: queryCacheKeys,
   };
 }

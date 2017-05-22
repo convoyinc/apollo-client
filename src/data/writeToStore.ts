@@ -146,7 +146,7 @@ export function writeQueryToStore({
         variables,
         store,
         queryCache,
-        queryCacheKeys: queryCacheKeys as { [id: string]: any},
+        keys: queryCacheKeys as { [id: string]: any},
         updatedKeys,
       });
     }
@@ -224,7 +224,7 @@ export function writeResultToStore({
           variables,
           store,
           queryCache,
-          queryCacheKeys: queryCacheKeys as { [x: string]: any },
+          keys: queryCacheKeys as { [x: string]: any },
           updatedKeys,
         });
       }

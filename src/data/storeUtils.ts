@@ -150,18 +150,29 @@ export interface QueryCache {
   [queryId: string]: QueryCacheValue;
 }
 
+/**
+ * QueryCacheState determines the state of the query cache. The options are:
+ *
+ * - fresh: The query cache is in sync with the normalized store
+ * - stale: Changes (may) have been made to the normalized store making the query cache stale
+ * - dirty: The query cache has been manipulated directly (updateQueries without updateStoreFlag) without writing changes to the normalized
+ * store
+ *
+ * When a query cache is initially stored it is considered fresh. When any of the keys in the query cache are updated in the normalized
+ * cache it becomes stale, leading to the result being reassembled from the normalized cache the next time it is accessed.
+ *
+ * If the query cache is manipulated directly (mutate's updateQueries), the query cache may become dirty. While in this state, the query
+ * cache data should be used instead of reassembling data from the normalized store, but as soon as possible (when calling
+ * QueryManager.fetchQuery()) new data should be retrieved form the server.
+ */
+export type QueryCacheState = 'fresh' | 'stale' | 'dirty';
+
 export interface QueryCacheValue {
   result: any;
   // Keys in the normalized cache containing data for this cached query result
   keys: {[id: string]: {}[]};
   variables?: Object;
-  // Flag indicating whether this this cached query result is in-sync with the normalized cache or not
-  dirty: boolean;
-  // Flag indicating whether this cached query result has been manually modified (through mutate's updateQueries). If this happens we do
-  // not update the keys of this cached query result and we cannot be 100% sure that it is in sync with the underlying normalized cache or
-  // that it even contains the necessary data. When modified is true we attempt to reassembly the result in QueryManager, but only when we
-  // have a chance of making a network query if the data is missing (i.e. a component is mounted).
-  modified: boolean;
+  state: QueryCacheState;
 }
 
 export interface Cache {

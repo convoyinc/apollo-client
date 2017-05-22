@@ -2,7 +2,7 @@ import {
   NormalizedCache,
   Cache,
   QueryCache,
-  QueryCacheValue,
+  QueryCacheValue, QueryCacheState,
 } from './storeUtils';
 
 import { isEqual } from '../util/isEqual';
@@ -32,7 +32,9 @@ export function invalidateQueryCache({
 
   const newQueryCache = {...queryCache};
   updatedQueryIds.forEach(queryId => {
-    newQueryCache[queryId].dirty = true;
+    if (newQueryCache[queryId].state !== 'dirty') {
+      newQueryCache[queryId].state = 'stale';
+    }
   });
 
   return {
@@ -65,20 +67,20 @@ export function insertQueryIntoCache({
   variables = {},
   store,
   queryCache,
-  queryCacheKeys,
+  keys,
   updatedKeys,
-  modified = false,
+  state = 'fresh',
 }: {
   queryId: string,
   result: any,
   variables?: Object,
   store: NormalizedCache,
   queryCache: QueryCache,
-  queryCacheKeys: { [id: string]: any },
+  keys: { [id: string]: any },
   updatedKeys?: { [id: string]: any },
-  modified?: boolean,
+  state?: QueryCacheState,
 }): Cache {
-  if (!queryCacheKeys || !Object.keys(queryCacheKeys).length) {
+  if (!keys || !Object.keys(keys).length) {
     throw new Error(`Trying to insert query ${queryId} into query cache but no query cache keys are specified`);
   }
 
@@ -94,11 +96,10 @@ export function insertQueryIntoCache({
     queryCache: {
       ...cache.queryCache,
       [queryId]: mergeQueryCacheValue({
-        result: result,
-        keys: queryCacheKeys,
-        variables: variables,
-        dirty: false,
-        modified: modified,
+        result,
+        keys,
+        variables,
+        state,
       }, cache.queryCache[queryId]),
     },
   };
@@ -108,30 +109,27 @@ export function readQueryFromCache({
   queryId,
   queryCache,
   variables = {},
-  allowModified = false,
 }: {
   queryId: string,
   queryCache: QueryCache,
   variables?: Object,
-  allowModified?: boolean,
 }): {
   result: any,
-  modified: boolean,
+  dirty: boolean,
 } {
   const cachedQuery = queryCache[queryId];
   if (!cachedQuery) {
     return {
       result: null,
-      modified: false,
+      dirty: false,
     };
   }
 
-  const result = !cachedQuery.dirty && (allowModified || !cachedQuery.modified) && isEqual(variables,
-    cachedQuery.variables) ? cachedQuery.result : null;
+  const result = cachedQuery.state !== 'stale' && isEqual(variables, cachedQuery.variables) ? cachedQuery.result : null;
 
   return {
     result: result,
-    modified: cachedQuery.modified,
+    dirty: cachedQuery.state === 'dirty',
   };
 }
 
