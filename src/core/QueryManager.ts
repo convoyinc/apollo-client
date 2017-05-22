@@ -285,9 +285,33 @@ export class QueryManager {
     // Create a map of update queries by id to the query instead of by name.
     const updateQueries: { [queryId: string]: MutationQueryReducer } = {};
     if (updateQueriesByName) {
-      Object.keys(updateQueriesByName).forEach(queryName => (this.queryIdsByName[queryName] || []).forEach(queryId => {
-        updateQueries[queryId] = updateQueriesByName[queryName];
-      }));
+      const updateQueriesByNameRegExps:{ [x: string]:RegExp } = {};
+
+      Object.keys(updateQueriesByName).forEach(queryNameOrRegExp => {
+        const regexpParts = queryNameOrRegExp.split('/');
+        if (regexpParts.length >= 2) {
+          updateQueriesByNameRegExps[queryNameOrRegExp] =
+              new RegExp(regexpParts.slice(0, regexpParts.length - 1).join(''), regexpParts[regexpParts.length - 1]);
+        }
+        else {
+          this.queryIdsByName[queryNameOrRegExp].forEach(queryId => {
+            updateQueries[queryId] = updateQueriesByName[queryNameOrRegExp];
+          });
+        }
+      });
+
+      const queryNames = Object.keys(this.queryIdsByName);
+      Object.keys(updateQueriesByNameRegExps).forEach(queryNameRegExp => {
+        queryNames.forEach(queryName => {
+          if (queryName.match(updateQueriesByNameRegExps[queryNameRegExp])) {
+            this.queryIdsByName[queryName].forEach(queryId => {
+              if (!updateQueries[queryId]) {
+                updateQueries[queryId] = updateQueriesByName[queryNameRegExp];
+              }
+            });
+          }
+        });
+      });
     }
 
     this.store.dispatch({

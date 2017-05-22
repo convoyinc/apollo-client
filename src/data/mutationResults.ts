@@ -29,6 +29,8 @@ export type MutationQueryReducer = (previousResult: Object, options: {
    * b) keep the query cache in a fresh state even though updateStoreFlag was set to false. This most likely means that an `update`
    * function was supplied to mutate making sure that the normalized store is in sync AND that the modifications to the query result didn't
    * affect the keys of the query cache.
+   *
+   * c) mark all or some query caches dirty using a regexp as query name
    */
    updateStoreFlag?: boolean;
    forceQueryCacheState?: QueryCacheState;

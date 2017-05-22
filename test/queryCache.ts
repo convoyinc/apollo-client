@@ -3,6 +3,7 @@ import mockNetworkInterface from './mocks/mockNetworkInterface';
 import gql from 'graphql-tag';
 import ApolloClient from '../src/ApolloClient';
 import {cloneDeep} from '../src/util/cloneDeep';
+import {NetworkInterface} from '../src/transport/networkInterface';
 
 describe('query cache', () => {
   const query = gql`
@@ -169,15 +170,15 @@ describe('query cache', () => {
       },
     };
 
-    const setupClient = (): ApolloClient => {
-      const networkInterface = mockNetworkInterface({
-        request: {query},
+    const setupClient = (networkInterface? : NetworkInterface): ApolloClient => {
+      networkInterface = networkInterface || mockNetworkInterface({
+        request: { query },
         result: data,
       }, {
-        request: {query: mutation},
+        request: { query: mutation },
         result: mutationResult,
       }, {
-        request: {query},
+        request: { query },
         result: data,
       });
 
@@ -216,7 +217,7 @@ describe('query cache', () => {
       const client = setupClient();
 
       let c = 0;
-      client.watchQuery({query}).subscribe({
+      client.watchQuery({ query }).subscribe({
         next: (result: any) => {
           switch (c++) {
             case 0:
@@ -318,6 +319,174 @@ describe('query cache', () => {
               done(new Error('`next` was called to many times.'));
           }
         },
+      });
+    });
+
+    it('works with regexp and forceQueryCacheState', () => {
+      const randomQuery = gql`
+        query random {
+          random {
+            id
+            name
+          }
+        }
+      `;
+
+      const randomQueryData = {
+        data: {
+          random: {
+            id: 'random',
+            name: 'Random',
+          },
+        },
+      };
+
+      const randomQuery2 = gql`
+        query random2 {
+          random2 {
+            id
+            name
+          }
+        }
+      `;
+
+      const randomQueryData2 = {
+        data: {
+          random2: {
+            id: 'random2',
+            name: 'Random 2',
+          }
+        },
+      };
+
+      const expectedData = {
+        ...initialState.apollo.data,
+        'ROOT_QUERY': {
+          ...initialState.apollo.data.ROOT_QUERY,
+          'random': {
+            'generated': false,
+            'id': 'random',
+            'type': 'id',
+          },
+          'random2': {
+            'generated': false,
+            'id': 'random2',
+            'type': 'id',
+          },
+        },
+        'ROOT_MUTATION': { id: 'dummy' },
+        'account1': {
+            ...initialState.apollo.data.account1,
+          'name': 'Account 1 (updated)',
+        },
+        'random': {
+          'id': 'random',
+          'name': 'Random',
+        },
+        'random2': {
+          'id': 'random2',
+          'name': 'Random 2',
+        },
+      };
+
+      let expectedCache = {
+        data: expectedData,
+        queryCache: {
+          '1': {
+            state: 'fresh',
+            result: {
+              node: {
+                ...data.data.node,
+                name: 'Account 1 (updated)',
+              },
+            },
+            variables: {},
+            keys: {
+              'ROOT_QUERY.node({"id":"account1"})': true,
+              'account1': true,
+              'user1': true,
+              'user2': true,
+            },
+          },
+          '3': {
+            state: 'dirty',
+            result: randomQueryData.data,
+            variables: {},
+            keys: {
+              'ROOT_QUERY.random': true,
+              'random': true,
+            },
+          },
+          '5': {
+            state: 'dirty',
+            result: randomQueryData2.data,
+            variables: {},
+            keys: {
+              'ROOT_QUERY.random2': true,
+              'random2': true,
+            },
+          },
+        },
+      };
+
+      const client = setupClient(mockNetworkInterface({
+        request: { query },
+        result: data,
+      }, {
+        request: { query: randomQuery },
+        result: randomQueryData,
+      }, {
+        request: { query: randomQuery2 },
+        result: randomQueryData2,
+      }, {
+        request: { query: mutation },
+        result: mutationResult,
+      }));
+
+      return Promise.all([
+        new Promise((resolve, reject) => {
+          const handle = client.watchQuery({ query: query });
+          handle.subscribe({
+            next(res) {
+              resolve(res);
+            },
+          });
+        }),
+        new Promise((resolve, reject) => {
+          const handle = client.watchQuery({ query: randomQuery });
+          handle.subscribe({
+            next(res) {
+              resolve(res);
+            },
+          });
+        }),
+        new Promise((resolve, reject) => {
+          const handle = client.watchQuery({ query: randomQuery2 });
+          handle.subscribe({
+            next(res) {
+              resolve(res);
+            },
+          });
+        }),
+      ])
+      .then(() => {
+        return client.mutate({
+          mutation,
+          updateQueries: {
+            account: (prev: any, options: any) => {
+              const newData = cloneDeep(prev);
+              newData.node.name = 'Account 1 (updated)';
+              return newData;
+            },
+            '/random/': (prev: any, options: any) => {
+              options.forceQueryCacheState = 'dirty';
+              return prev;
+            },
+          },
+        })
+      })
+      .then(() => {
+        assert.deepEqual(client.store.getState().apollo.cache, expectedCache);
       });
     });
   });
