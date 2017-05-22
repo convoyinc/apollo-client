@@ -294,7 +294,7 @@ export class QueryManager {
           updateQueriesByNameRegExps[queryNameOrRegExp] =
               new RegExp(regexpParts.slice(0, regexpParts.length - 1).join(''), regexpParts[regexpParts.length - 1]);
         }
-        else {
+        else if (this.queryIdsByName[queryNameOrRegExp]) {
           this.queryIdsByName[queryNameOrRegExp].forEach(queryId => {
             updateQueries[queryId] = updateQueriesByName[queryNameOrRegExp];
           });
