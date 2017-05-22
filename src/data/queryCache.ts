@@ -18,10 +18,18 @@ export function invalidateQueryCache({
   updatedKeys?: { [id: string]: any } | null,
   omitQueryIds?: string[],
 }): Cache {
-  const updatedQueryIds = Object.keys(queryCache).filter(
-    queryId => (!omitQueryIds || omitQueryIds.indexOf(queryId) < 0) && (!updatedKeys || Object.keys(queryCache[queryId].keys).some(
-      id => !!updatedKeys[id])),
-  );
+  const updatedQueryIds = Object.keys(queryCache).filter(queryId => {
+    if (omitQueryIds && omitQueryIds.indexOf(queryId) >= 0) {
+      return false;
+    }
+
+    if (queryCache[queryId].state === 'dirty') {
+      return false;
+    }
+
+
+    return !updatedKeys || Object.keys(queryCache[queryId].keys).some(id => !!updatedKeys[id]);
+  });
 
   if (!updatedQueryIds.length) {
     return {

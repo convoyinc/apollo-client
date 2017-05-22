@@ -144,7 +144,7 @@ export class ObservableQuery<T> extends Observable<ApolloQueryResult<T>> {
    * @return {result: Object, loading: boolean, networkStatus: number, partial: boolean}
    */
   public currentResult(): ApolloCurrentResult<T> {
-    const { data, partial } = this.queryManager.getCurrentQueryResult(this, true);
+    const { data, partial, wasCachedAndDirty } = this.queryManager.getCurrentQueryResult(this, true);
     const queryStoreValue = this.queryManager.getApolloState().queries[this.queryId];
 
     if (queryStoreValue && (
@@ -167,7 +167,7 @@ export class ObservableQuery<T> extends Observable<ApolloQueryResult<T>> {
     // See more: https://github.com/apollostack/apollo-client/issues/707
     // Basically: is there a query in flight right now (modolo the next tick)?
     const loading = (this.options.fetchPolicy === 'network-only' && queryLoading)
-      || (partial && this.options.fetchPolicy !== 'cache-only');
+      || ((partial || wasCachedAndDirty) && this.options.fetchPolicy !== 'cache-only');
 
     // if there is nothing in the query store, it means this query hasn't fired yet. Therefore the
     // network status is dependent on queryLoading.

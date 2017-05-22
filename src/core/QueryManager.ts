@@ -94,6 +94,7 @@ import { print } from 'graphql/language/printer';
 import {
   readQueryFromStore,
   ReadQueryOptions,
+  DiffResult,
 } from '../data/readFromStore';
 
 import {
@@ -1022,10 +1023,11 @@ export class QueryManager {
 
     try {
       // first try reading the full result from the store
-      const data = readQueryFromStore(readOptions);
-      return maybeDeepFreeze({ data, partial: false });
+      const diffResult: DiffResult = {};
+      const data = readQueryFromStore(readOptions, diffResult);
+      return maybeDeepFreeze({ data, partial: false, wasCachedAndDirty: diffResult.wasCached && diffResult.wasDirty });
     } catch (e) {
-      return maybeDeepFreeze({ data: {}, partial: true });
+      return maybeDeepFreeze({ data: {}, partial: true, wasCachedAndDirty: false });
     }
   }
 
