@@ -123,13 +123,19 @@ interface IdValueWithPreviousResult extends IdValue {
  * If nothing in the store changed since that previous result then values from the previous result
  * will be returned to preserve referential equality.
  */
-export function readQueryFromStore<QueryType>(options: ReadQueryOptions): QueryType {
+export function readQueryFromStore<QueryType>(options: ReadQueryOptions, diffResult?: DiffResult): QueryType {
   const optsPatch = { returnPartialData: false };
 
-  return diffQueryAgainstStore({
+  const result = diffQueryAgainstStore({
     ... options,
     ... optsPatch,
-  }).result;
+  });
+
+  if (diffResult) {
+    assign(diffResult, result);
+  }
+
+  return result.result;
 }
 
 export type ReadStoreContext = {
