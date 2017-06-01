@@ -170,7 +170,7 @@ describe('query cache', () => {
       },
     };
 
-    const setupClient = (networkInterface? : NetworkInterface): ApolloClient => {
+    const setupClient = (networkInterface?: NetworkInterface): ApolloClient => {
       networkInterface = networkInterface || mockNetworkInterface({
         request: { query },
         result: data,
@@ -355,7 +355,7 @@ describe('query cache', () => {
           random2: {
             id: 'random2',
             name: 'Random 2',
-          }
+          },
         },
       };
 
@@ -483,7 +483,7 @@ describe('query cache', () => {
               return prev;
             },
           },
-        })
+        });
       })
       .then(() => {
         assert.deepEqual(client.store.getState().apollo.cache, expectedCache);

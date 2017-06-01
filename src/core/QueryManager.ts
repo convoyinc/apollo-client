@@ -260,7 +260,7 @@ export class QueryManager {
   }: {
     mutation: DocumentNode,
     variables?: Object,
-    optimisticResponse?: Object,
+    optimisticResponse?: Object | Function,
     updateQueries?: MutationQueryReducersMap,
     refetchQueries?: string[] | PureQueryOptions[],
     update?: (proxy: DataProxy, mutationResult: Object) => void,
@@ -286,15 +286,14 @@ export class QueryManager {
     // Create a map of update queries by id to the query instead of by name.
     const updateQueries: { [queryId: string]: MutationQueryReducer } = {};
     if (updateQueriesByName) {
-      const updateQueriesByNameRegExps:{ [x: string]:RegExp } = {};
+      const updateQueriesByNameRegExps: { [x: string]: RegExp } = {};
 
       Object.keys(updateQueriesByName).forEach(queryNameOrRegExp => {
         const regexpParts = queryNameOrRegExp.split('/');
         if (regexpParts.length >= 2) {
           updateQueriesByNameRegExps[queryNameOrRegExp] =
               new RegExp(regexpParts.slice(0, regexpParts.length - 1).join(''), regexpParts[regexpParts.length - 1]);
-        }
-        else if (this.queryIdsByName[queryNameOrRegExp]) {
+        } else if (this.queryIdsByName[queryNameOrRegExp]) {
           this.queryIdsByName[queryNameOrRegExp].forEach(queryId => {
             updateQueries[queryId] = updateQueriesByName[queryNameOrRegExp];
           });
