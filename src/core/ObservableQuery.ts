@@ -122,7 +122,7 @@ export class ObservableQuery<T> extends Observable<ApolloQueryResult<T>> {
           // performance hit.
           const selectedObservers = that.observers.filter((obs: Observer<ApolloQueryResult<T>>) => obs !== observer);
           if (selectedObservers.length === 0) {
-            that.queryManager.removeQuery(that.queryId);
+            // that.queryManager.removeQuery(that.queryId);
           }
 
           setTimeout(() => {
