@@ -3795,7 +3795,7 @@ var ApolloClient$1 = (function () {
         var defaultConnectToDevTools = !isProduction() &&
             typeof window !== 'undefined' && (!window.__APOLLO_CLIENT__);
         if (typeof connectToDevTools === 'undefined' ? defaultConnectToDevTools : connectToDevTools) {
-            window.__APOLLO_CLIENT__ = this;
+            if (typeof window !== 'undefined') window.__APOLLO_CLIENT__ = this;
         }
         if (!hasSuggestedDevtools && !isProduction()) {
             hasSuggestedDevtools = true;
